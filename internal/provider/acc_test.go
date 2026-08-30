@@ -223,16 +223,12 @@ resource "yottabot_mcp_tool" "test" {
 // attempt destroy-then-recreate — that is known to fail, and asserting it
 // passes would be asserting something the API cannot do.
 //
-// KNOWN FAILURE, server-side, not a provider defect. POST and PATCH on
-// /v1/context/parent-handles return 500: their hand-written RETURNING clauses
-// select 16 columns while scanParentHandle expects 19, having missed
-// stream_state / stream_last_error / stream_changed_at when those were added.
-// The INSERT commits and the response scan then fails, so the row IS created
-// and the caller is told it was not — which for Terraform means an unrecorded
-// resource that makes the next apply collide with the unique constraint.
-//
-// This test is left failing on purpose. It is correct, and it will pass when
-// the RETURNING clauses are fixed.
+// This test failed when first written, on a server defect rather than anything
+// here: POST and PATCH returned 500 while still writing the row, because their
+// RETURNING clauses selected 16 columns to a scan expecting 19. The row was
+// created and the caller told it was not, so a run left orphaned handles the
+// next apply then collided with. Fixed server-side by sharing one column list;
+// this test is what proves it stays fixed from the client's side.
 func TestAccContextProvider_lifecycle(t *testing.T) {
 	external := accName(t, "ctx")
 
