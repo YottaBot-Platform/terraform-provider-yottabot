@@ -61,8 +61,8 @@ than creating something we own.
 
 | Component | Version | Verified on |
 | --- | --- | --- |
-| Terraform CLI | 1.0 or later | 1.15 |
-| OpenTofu | 1.6 or later | 1.6.0 and 1.12.6 |
+| Terraform CLI | 1.0 or later | 1.0.0, 1.0.2, 1.15.5, 1.16.0 |
+| OpenTofu | 1.6 or later | 1.6.0, 1.12.6 |
 | Go (to build from source) | 1.25 or later | 1.26 |
 | YottaBot | see [Compatibility](#compatibility) | — |
 
@@ -70,11 +70,14 @@ The provider implements **Terraform Plugin Protocol v6** via
 [terraform-plugin-framework](https://github.com/hashicorp/terraform-plugin-framework).
 Protocol v6 is why Terraform 1.0 is the floor.
 
-OpenTofu support is tested, not assumed. Both ends of the supported range were
-driven through the full resource lifecycle — plan, apply, a re-plan that must
-come back empty, import into a fresh state, and destroy — against a live
-YottaBot deployment. The floor is stated as 1.6 because 1.6.0 is what was
-exercised, not because protocol support implies it.
+Both CLI floors are tested, not derived. Every version listed above was driven
+through the full resource lifecycle — apply, a re-plan that must come back
+empty, import into a fresh state, another empty plan, and destroy — against a
+live YottaBot deployment. The floors are 1.0 and 1.6 because those releases
+were exercised, not because protocol support implies them.
+
+`scripts/cli-lifecycle.sh` is that check, and it takes any CLI path.
+Terraform 1.0.0 predates darwin/arm64, so it was exercised as the amd64 build.
 
 ## Compatibility
 

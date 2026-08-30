@@ -74,7 +74,7 @@ limitation, not a provider incompatibility, and it is why the compatibility
 claim needs a check that does not use the harness:
 
 ```shell
-YOTTABOT_ENDPOINT=... YOTTABOT_TOKEN=... scripts/opentofu-lifecycle.sh tofu
+YOTTABOT_ENDPOINT=... YOTTABOT_TOKEN=... scripts/cli-lifecycle.sh tofu
 ```
 
 It drives one resource through apply, a re-plan that must come back empty,

@@ -2,6 +2,10 @@
 #
 # Drive one resource through a full lifecycle with a chosen CLI binary.
 #
+# Run this against both ends of a CLI range before changing that range in the
+# README. The versions listed there are the ones this script has been run
+# against, which is the only reason they are stated.
+#
 # This exists because the acceptance tests cannot verify OpenTofu.
 # terraform-plugin-testing registers the provider under a synthetic address and
 # OpenTofu resolves it against registry.opentofu.org, so `tofu` refuses it with
@@ -14,7 +18,7 @@
 # check that does not use the harness.
 #
 # Usage:
-#   YOTTABOT_ENDPOINT=... YOTTABOT_TOKEN=... scripts/opentofu-lifecycle.sh [path-to-cli]
+#   YOTTABOT_ENDPOINT=... YOTTABOT_TOKEN=... scripts/cli-lifecycle.sh [path-to-cli]
 #
 # Creates and destroys a real agent. Point it at a disposable deployment.
 set -euo pipefail
@@ -46,10 +50,9 @@ terraform {
 }
 resource "yottabot_agent" "probe" {
   name        = "opentofu-lifecycle-probe"
-  description = "created and destroyed by scripts/opentofu-lifecycle.sh"
+  description = "created and destroyed by scripts/cli-lifecycle.sh"
   status      = "draft"
 }
-output "id" { value = yottabot_agent.probe.id }
 EOF
 
 cd "$work"
@@ -64,7 +67,10 @@ echo "==> re-plan must be empty"
   "$CLI" plan -no-color >&2; exit 1
 }
 
-id="$("$CLI" output -raw id)"
+# Read the id from state, not from an output block. An output would be lost
+# with the state file below, and some CLI versions report the missing output as
+# a plan change — a false failure that says nothing about the provider.
+id="$("$CLI" show -json | python3 -c 'import json,sys; print(json.load(sys.stdin)["values"]["root_module"]["resources"][0]["values"]["id"])')"
 echo "==> import $id into a fresh state"
 rm -f terraform.tfstate
 "$CLI" import -no-color yottabot_agent.probe "$id" >/dev/null
