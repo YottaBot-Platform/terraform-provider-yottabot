@@ -84,6 +84,16 @@ func newJTI() (string, error) {
 
 // signAssertion builds the compact JWS the token endpoint expects.
 func signAssertion(priv ed25519.PrivateKey, kid, userID, audience string, now time.Time) (string, error) {
+	// ed25519.Sign PANICS on a key of the wrong size rather than returning an
+	// error. Inside a Terraform provider a panic surfaces to the practitioner
+	// as a plugin crash with no usable message, so trade it for an error here.
+	// Today parsePrivatePEM makes this unreachable; the guard is for the
+	// refactor that stops being true.
+	if len(priv) != ed25519.PrivateKeySize {
+		return "", fmt.Errorf("signing key is %d bytes, want %d — the credential's private key is not a valid Ed25519 key",
+			len(priv), ed25519.PrivateKeySize)
+	}
+
 	jti, err := newJTI()
 	if err != nil {
 		return "", err
