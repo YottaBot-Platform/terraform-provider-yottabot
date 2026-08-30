@@ -1,0 +1,14 @@
+yotta-mono
+yotta-gitops
+yotta-infra
+yotta-cross-repo
+yottactl
+src/yotta-bot/
+src/common/
+plan #[0-9]
+demo-[0-9][0-9]\.yotta\.bot
+aster-demo
+\.dkr\.ecr\.
+amazonaws\.com
+CLAUDE\.md
+docs/plans/

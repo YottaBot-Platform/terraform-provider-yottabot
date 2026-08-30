@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in the provider behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste credentials, tokens, private keys, or customer data.**
+        Redact your endpoint and identifiers if you would not publish them.
+        For a security vulnerability, use the Security tab instead of this form.
+  - type: input
+    id: provider-version
+    attributes:
+      label: Provider version
+      placeholder: v0.1.0, or a commit SHA if built from source
+    validations:
+      required: true
+  - type: input
+    id: terraform-version
+    attributes:
+      label: Terraform CLI version
+      placeholder: output of `terraform version`
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Terraform configuration
+      description: The smallest config that reproduces this, with secrets redacted.
+      render: hcl
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Include the command output. `TF_LOG=DEBUG` output helps — redact it first, it can contain endpoints and request bodies.
+    validations:
+      required: true
+  - type: textarea
+    id: plan-loop
+    attributes:
+      label: Does `terraform plan` show the same diff after a successful apply?
+      description: |
+        If yes, say which attribute. A plan that never converges is a specific
+        class of provider bug and this tells us immediately that it is one.
+    validations:
+      required: false

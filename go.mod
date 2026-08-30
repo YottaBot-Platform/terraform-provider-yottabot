@@ -1,13 +1,14 @@
 // The YottaBot Terraform provider is a standalone Go module with a
 // deliberately minimal dependency graph.
 //
-// The only direct dependency is terraform-plugin-framework. Nothing here may
-// import the YottaBot server's own packages: doing so would drag a database
-// driver, gRPC, and a Kubernetes client into a binary that customers download
-// and run, for code paths a Terraform provider never executes. The client in
-// internal/client is a small, provider-owned REST client for exactly this
-// reason, and internal/client/assertion.go reimplements ~40 lines of
-// stdlib-only JWT signing rather than importing the server's crypto package.
+// Every direct dependency is a HashiCorp Terraform plugin library, and that is
+// the whole list. Nothing here may import the YottaBot server's own packages:
+// doing so would drag a database driver, gRPC, and a Kubernetes client into a
+// binary that customers download and run, for code paths a Terraform provider
+// never executes. The client in internal/client is a small, provider-owned REST
+// client for exactly this reason, and internal/client/assertion.go reimplements
+// ~40 lines of stdlib-only JWT signing rather than importing the server's
+// crypto package.
 //
 // Keep it that way. A new direct dependency here is a supply-chain decision
 // for every customer, not a convenience.
@@ -15,7 +16,11 @@ module github.com/YottaBot-Platform/terraform-provider-yottabot
 
 go 1.25.0
 
-require github.com/hashicorp/terraform-plugin-framework v1.19.0
+require (
+	github.com/hashicorp/terraform-plugin-framework v1.19.0
+	github.com/hashicorp/terraform-plugin-framework-jsontypes v0.2.0
+	github.com/hashicorp/terraform-plugin-go v0.31.0
+)
 
 require (
 	github.com/fatih/color v1.18.0 // indirect
@@ -23,8 +28,6 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3 // indirect
 	github.com/hashicorp/go-plugin v1.7.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
-	github.com/hashicorp/terraform-plugin-framework-jsontypes v0.2.0 // indirect
-	github.com/hashicorp/terraform-plugin-go v0.31.0 // indirect
 	github.com/hashicorp/terraform-plugin-log v0.10.0 // indirect
 	github.com/hashicorp/terraform-registry-address v0.4.0 // indirect
 	github.com/hashicorp/terraform-svchost v0.1.1 // indirect

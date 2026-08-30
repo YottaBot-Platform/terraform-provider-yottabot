@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose a new resource, attribute, or behavior
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This provider wraps YottaBot's public `/v1` REST API and has no backend
+        of its own. If what you need does not exist in the API yet, the API
+        change has to land first — say so below and we will tell you whether it
+        is planned.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The outcome you want, not the implementation you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: What would the configuration look like?
+      render: hcl
+    validations:
+      required: false
+  - type: input
+    id: api
+    attributes:
+      label: Which API route backs this, if you know?
+      placeholder: /v1/agent-platform/...
+    validations:
+      required: false
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How are you working around it today?
+    validations:
+      required: false

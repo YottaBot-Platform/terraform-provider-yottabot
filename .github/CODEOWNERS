@@ -1,0 +1,14 @@
+# Every change needs a maintainer review before it can merge.
+#
+# This lists an individual because the YottaBot-Platform organization has no
+# team yet. Replace it with a maintainers team before the repository goes
+# public: a single owner is a bus factor, and GitHub silently requests no review
+# at all if a CODEOWNERS entry names a team that does not exist.
+* @tyang-yotta
+
+# Release and supply-chain surfaces. Called out separately so a change here is
+# visible as such in review, not buried in a diff.
+/.github/workflows/ @tyang-yotta
+/.goreleaser.yml    @tyang-yotta
+/go.mod             @tyang-yotta
+/go.sum             @tyang-yotta
