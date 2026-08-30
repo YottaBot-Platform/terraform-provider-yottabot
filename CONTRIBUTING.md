@@ -61,8 +61,27 @@ faster, needs no estate, and runs in CI. Acceptance tests are for behavior that
 only Terraform's own lifecycle exercises.
 
 Acceptance tests create and destroy real resources against a real YottaBot
-estate. They are gated behind `TF_ACC=1`. **Never point them at production.** A
-test must clean up after itself, including on failure.
+deployment. They are gated behind `TF_ACC=1`. **Never point them at
+production.** A test must clean up after itself, including on failure.
+
+### OpenTofu
+
+The acceptance tests **cannot** verify OpenTofu. terraform-plugin-testing
+registers the provider under a synthetic address that OpenTofu rejects — it
+resolves against `registry.opentofu.org` and refuses the legacy `-` namespace —
+so the run fails at init, before the provider starts. That is a harness
+limitation, not a provider incompatibility, and it is why the compatibility
+claim needs a check that does not use the harness:
+
+```shell
+YOTTABOT_ENDPOINT=... YOTTABOT_TOKEN=... scripts/opentofu-lifecycle.sh tofu
+```
+
+It drives one resource through apply, a re-plan that must come back empty,
+import into a fresh state, another empty plan, and destroy. Run it against both
+ends of the supported OpenTofu range before changing the range in the README —
+the floor there is a tested claim, not one derived from protocol support. The
+script takes any CLI path, so it works for Terraform too.
 
 ## Style
 
