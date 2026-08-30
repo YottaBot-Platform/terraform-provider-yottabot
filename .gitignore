@@ -1,0 +1,15 @@
+# GoReleaser build output.
+dist/
+
+# Local provider builds.
+terraform-provider-yottabot
+
+# Terraform working files, in case someone runs an example in place.
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars
+
+# Coverage output.
+coverage.out

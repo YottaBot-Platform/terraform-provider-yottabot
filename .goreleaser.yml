@@ -1,0 +1,78 @@
+# GoReleaser configuration for the Terraform Registry.
+#
+# The Registry has hard requirements that are easy to break silently: the
+# binary inside each zip must be named terraform-provider-<type>_v<version>,
+# the checksum file must be <project>_<version>_SHA256SUMS, and that checksum
+# file must carry a detached GPG signature from a key registered with the
+# Registry. A release that violates any of these uploads successfully and then
+# fails to publish.
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    # Reproducibility: use the commit's timestamp rather than build time, so
+    # rebuilding the same tag produces the same bytes.
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+    # main.version defaults to "dev". A released binary reporting "dev" is a
+    # packaging bug, not a cosmetic one — it reaches `terraform version`.
+    ldflags:
+      - '-s -w -X main.version={{.Version}}'
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    goarch:
+      - amd64
+      - arm64
+      - '386'
+      - arm
+    ignore:
+      - goos: darwin
+        goarch: '386'
+      - goos: darwin
+        goarch: arm
+    binary: '{{ .ProjectName }}_v{{ .Version }}'
+
+archives:
+  - formats: [zip]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+
+checksum:
+  extra_files:
+    - glob: 'terraform-registry-manifest.json'
+      name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+  algorithm: sha256
+
+signs:
+  - artifacts: checksum
+    args:
+      - "--batch"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+
+sboms:
+  - artifacts: archive
+
+release:
+  extra_files:
+    - glob: 'terraform-registry-manifest.json'
+      name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+  # Release candidates must not become the recommended version.
+  prerelease: auto
+
+# Release notes come from the curated CHANGELOG, not from commit subjects.
+changelog:
+  disable: true
