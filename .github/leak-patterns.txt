@@ -1,14 +1,34 @@
-yotta-mono
-yotta-gitops
-yotta-infra
-yotta-cross-repo
-yottactl
-src/yotta-bot/
-src/common/
-plan #[0-9]
-demo-[0-9][0-9]\.yotta\.bot
-aster-demo
+# Patterns that must never appear in this public repository.
+#
+# Deliberately written to match by SHAPE rather than by listing internal names:
+# a pattern file that enumerates what it is hiding is itself a disclosure, and
+# it hands a reader the exact vocabulary to search for. Each line below catches
+# a whole family, so it also catches names that did not exist when it was
+# written.
+
+# Source paths from the private repository this code was extracted from.
+src/(yotta|common)[a-z-]*/
+
+# Internal repository names: the product word followed by a hyphen and a
+# suffix. yottabot and yotta.bot are legitimate and do not match.
+\byotta-[a-z]+\b
+
+# References to internal planning documents.
+[Pp]lan #[0-9]
+docs/plans/
+
+# Internal build tags and agent instruction files.
+prod-[0-9a-f]{7}
+CLAUDE\.md
+
+# Cloud account identifiers, registry hosts, and resource identifiers. The
+# backing cloud for a customer's deployment is an implementation detail and
+# must not surface in customer-facing material.
+#
+# The account id is scoped to the contexts it actually appears in. A bare
+# twelve-digit pattern also matches digit runs inside pinned action SHAs and Go
+# pseudo-version timestamps, which made the scan fire on every workflow file.
+[0-9]{12}\.dkr\.ecr
+arn:[a-z-]+:[a-z0-9-]*:[a-z0-9-]*:[0-9]{12}
 \.dkr\.ecr\.
 amazonaws\.com
-CLAUDE\.md
-docs/plans/

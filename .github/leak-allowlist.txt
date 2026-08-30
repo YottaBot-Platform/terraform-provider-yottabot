@@ -1,0 +1,7 @@
+# Hostnames under the company domain that are DELIBERATELY public.
+#
+# The scan treats every *.yotta.bot host as a leak unless it is listed here.
+# Deny-by-default is the point: a new internal hostname fails the scan without
+# anyone remembering to add a pattern, while publishing a new public host is an
+# explicit, reviewable line in this file.
+charts.yotta.bot

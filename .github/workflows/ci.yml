@@ -70,19 +70,64 @@ jobs:
       # customers — one of them was in a schema description published to the
       # Terraform Registry, another in an error message practitioners see.
       #
-      # If this job fails, fix the file. Do not add an exception here without
+      # If this job fails, fix the file. Do not add an exception without
       # understanding why the pattern was on the list.
       - name: scan for internal references
         run: |
           set -o pipefail
-          # The pattern list lives in its own file so this workflow is itself
-          # scanned; an inline list would match its own definition.
-          if grep -rInE -f .github/leak-patterns.txt \
-               --exclude=leak-patterns.txt \
-               --include='*.go' --include='*.md' --include='*.yml' \
-               --include='*.yaml' --include='*.tf' --include='*.sh' \
-               --include='*.json' --include='go.mod' . ; then
-            echo "::error::internal references found — see the lines above"
+          grep -vE '^[[:space:]]*(#|$)' .github/leak-patterns.txt > /tmp/patterns.txt
+          grep -vE '^[[:space:]]*(#|$)' .github/leak-allowlist.txt > /tmp/allow.txt
+          rc=0
+
+          # Stage 1 — every *.yotta.bot host must be on the allowlist. Deny-by-default,
+          # so a new internal hostname fails without anyone adding a pattern for it.
+          hosts=$(grep -rhoE '[a-z0-9-]+\.yotta\.bot' --exclude=leak-allowlist.txt --exclude-dir=.git . | sort -u || true)
+          for h in $hosts; do
+            if ! grep -qxF "$h" /tmp/allow.txt; then
+              echo "::error::$h is not on the public host allowlist"
+              grep -rnI --exclude-dir=.git -- "$h" . | head -5
+              rc=1
+            fi
+          done
+
+          # Stage 2 — everything else, by pattern.
+          if grep -rInE -f /tmp/patterns.txt --exclude=leak-patterns.txt --exclude=leak-allowlist.txt --exclude-dir=.git .; then
+            echo "::error::internal references found"
+            rc=1
+          fi
+          [ $rc -eq 0 ] && echo "clean"
+          exit $rc
+
+  commit-messages:
+    name: no internal references in commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      # Commit messages ship with every clone, and the working-tree scan above
+      # structurally cannot see them. That gap is not hypothetical: an earlier
+      # pass through this repository left an internal hostname and internal
+      # document references in four commit messages while every tree scan
+      # reported clean.
+      - name: scan commit messages
+        run: |
+          set -o pipefail
+          grep -vE '^[[:space:]]*(#|$)' .github/leak-patterns.txt > /tmp/patterns.txt
+          range="${{ github.event.pull_request.base.sha }}..HEAD"
+          if [ -z "${{ github.event.pull_request.base.sha }}" ]; then
+            range="HEAD~1..HEAD"
+          fi
+          found=0
+          for c in $(git rev-list "$range"); do
+            if git log -1 --format='%B' "$c" | grep -nIE -f /tmp/patterns.txt; then
+              echo "::error::internal reference in commit message $c"
+              found=1
+            fi
+          done
+          if [ "$found" = "1" ]; then
+            echo "Rewrite the message before merging — it cannot be corrected after a push."
             exit 1
           fi
           echo "clean"

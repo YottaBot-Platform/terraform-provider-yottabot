@@ -8,6 +8,30 @@ no provider-specific backend: anything Terraform can do here, your operators can
 do through the console, the CLI, or the API, and the audit trail records it
 the same way.
 
+## What this provider manages, and what it does not
+
+YottaBot is a control plane. This provider manages the definitions inside it —
+the agents, workflows, and registrations that make up your YottaBot
+configuration.
+
+It does **not** manage your infrastructure. Your workloads live in your own
+cloud accounts, managed by your own Terraform. The two meet at
+`yottabot_context_provider`: you register an account you own, and YottaBot
+discovers what is in it. That registration is a reference — this provider never
+mints or stores credentials for your cloud.
+
+```hcl
+provider "aws" {}        # your account, your workloads — not this provider
+
+provider "yottabot" {}   # your YottaBot control plane — this provider
+```
+
+Three consequences follow from that boundary, and each is documented in its own
+section below: there is no resource that *runs* an agent or workflow, there is
+no resource that mints a credential, and `yottabot_context_provider` behaves
+differently from the other four because it registers something you own rather
+than creating something we own.
+
 > **Status: pre-release.** The provider is feature-complete for its five v1
 > resources and covered by unit tests, but it is **not yet published to the
 > Terraform Registry**. Until the first release, build from source (see
@@ -16,6 +40,7 @@ the same way.
 
 ## Contents
 
+- [What this provider manages, and what it does not](#what-this-provider-manages-and-what-it-does-not)
 - [Requirements](#requirements)
 - [Compatibility](#compatibility)
 - [Quick start](#quick-start)
