@@ -80,8 +80,51 @@ jobs:
           if grep -rInE -f .github/leak-patterns.txt \
                --exclude=leak-patterns.txt \
                --include='*.go' --include='*.md' --include='*.yml' \
-               --include='*.yaml' --include='go.mod' . ; then
+               --include='*.yaml' --include='*.tf' --include='*.sh' \
+               --include='*.json' --include='go.mod' . ; then
             echo "::error::internal references found — see the lines above"
             exit 1
           fi
           echo "clean"
+
+  docs:
+    name: generated docs are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+
+      # Registry documentation is generated from the schema and from
+      # examples/, and it is tied to the release tag — a docs fix needs a new
+      # provider version. Stale docs therefore cannot be corrected after the
+      # fact, which is why this is a merge gate rather than a release step.
+      - name: regenerate
+        run: go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@v0.25.0 generate --provider-name yottabot
+
+      - name: fail if docs/ changed
+        run: |
+          if ! git diff --exit-code -- docs/; then
+            echo "::error::docs/ is stale — run tfplugindocs generate and commit the result"
+            exit 1
+          fi
+
+  examples:
+    name: examples are valid HCL
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+
+      # These are not decoration: tfplugindocs inlines them into the Registry
+      # documentation, so an example that does not parse ships to customers as
+      # the recommended usage.
+      - name: terraform fmt
+        run: terraform fmt -recursive -check -diff examples/
