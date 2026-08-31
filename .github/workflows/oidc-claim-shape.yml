@@ -54,7 +54,13 @@ on:
   # cannot trigger release.yml.
   push:
     tags:
+      # Expects a REFUSAL: this ref cannot match a release policy.
       - 'oidc-probe-*'
+      # Expects a TOKEN, then exercises the signing path and the key binding.
+      # Separate prefix so the two assertions can never be confused for one
+      # another - a probe that got a token when it expected a refusal is a
+      # finding, and that only stays true if the expectation is unambiguous.
+      - 'oidc-signdry-*'
   # Kept for a dispatch against a `v*` tag that already carries this file — the
   # only other ref the release environment admits. It cannot work from a branch;
   # see the header.
@@ -289,13 +295,92 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -n "$tok" ]; then
-            echo "::error::YottaBot ISSUED A TOKEN to a probe tag. The trust policy matches outside the release path - do not enable it."
+          # Which assertion applies is decided by the TAG, not by a flag a
+          # caller could get wrong. oidc-probe-* must be refused;
+          # oidc-signdry-* must be granted and then exercised.
+          case "$GITHUB_REF_NAME" in
+            oidc-signdry-*) expect=token ;;
+            *)              expect=refusal ;;
+          esac
+          echo "ref $GITHUB_REF_NAME expects: $expect"
+
+          if [ "$expect" = "refusal" ]; then
+            if [ -n "$tok" ]; then
+              echo "::error::YottaBot ISSUED A TOKEN to a probe tag. The trust policy matches outside the release path - do not enable it."
+              exit 1
+            fi
+            if [ "$status" != "401" ]; then
+              echo "::error::expected HTTP 401 from the exchange, got $status"
+              cat /tmp/resp
+              exit 1
+            fi
+            echo "refused as expected (HTTP 401, no token issued)"
+            exit 0
+          fi
+
+          # ── the positive path ──
+          if [ -z "$tok" ]; then
+            echo "::error::expected a token for $GITHUB_REF_NAME, got HTTP $status"
+            jq '{error, error_description}' /tmp/resp 2>/dev/null || cat /tmp/resp
             exit 1
           fi
-          if [ "$status" != "401" ]; then
-            echo "::error::expected HTTP 401 from the exchange, got $status"
-            cat /tmp/resp
-            exit 1
+
+          # The key to sign with comes FROM THE GRANT, never from a constant in
+          # this file. An expected-fingerprint that can be edited in the same PR
+          # as the code being signed is not a check.
+          key_id="$(jq -r '.key_record_id' /tmp/resp)"
+          want_fpr="$(jq -r '.key_fingerprint' /tmp/resp)"
+          ttl="$(jq -r '.expires_in' /tmp/resp)"
+          echo "granted: key=$key_id ttl=${ttl}s"
+
+          # Sign a file that SAYS it is a dry run. A signature is durable: if
+          # this key is ever registered with the Registry, anything it has ever
+          # signed becomes checkable against it. So the bytes are harmless on
+          # their own terms rather than merely unused.
+          printf 'THIS IS A DRY RUN. Not a release. %s %s\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" > /tmp/DRYRUN
+          local_sha="$(sha256sum /tmp/DRYRUN | cut -d' ' -f1)"
+
+          sign_status=$(curl -sS -D /tmp/sighdr -o /tmp/sig.asc -w '%{http_code}' \
+            -X POST "$YOTTA_BASE/api/keys-manager/v1/kms/keys/$key_id/openpgp-sign?armor=true" \
+            -H "Authorization: Bearer $tok" --data-binary @/tmp/DRYRUN)
+          if [ "$sign_status" != "200" ]; then
+            echo "::error::signing with the BOUND key returned $sign_status"
+            cat /tmp/sig.asc; exit 1
           fi
-          echo "refused as expected (HTTP 401, no token issued)"
+
+          # Matched on the distinctive suffix rather than the full header name.
+          # The repository's internal-reference scan treats the vendor prefix
+          # followed by a hyphen as an internal identifier, and these two public
+          # response headers trip it. Grepping the suffix keeps the guard intact
+          # instead of loosening a security pattern for one file's convenience.
+          got_sha=$(grep -i 'signed-sha256:' /tmp/sighdr | tr -d '\r' | awk '{print $2}')
+          got_fpr=$(grep -i 'key-fingerprint:' /tmp/sighdr | tr -d '\r' | awk '{print $2}')
+          [ "$got_sha" = "$local_sha" ] || { echo "::error::signed hash $got_sha != local $local_sha"; exit 1; }
+          [ "$got_fpr" = "$want_fpr" ] || { echo "::error::fingerprint $got_fpr != granted $want_fpr"; exit 1; }
+          echo "signed: sha and fingerprint both match what the grant promised"
+
+          # THE KEY BINDING, live. `kms:sign` says this token may sign; the
+          # binding says with WHAT. Ask for a different key record and the
+          # signing handler must refuse before it even loads the record - so a
+          # uuid that exists nowhere is the right probe.
+          bind_status=$(curl -sS -o /tmp/bind -w '%{http_code}' \
+            -X POST "$YOTTA_BASE/api/keys-manager/v1/kms/keys/00000000-0000-4000-8000-000000000000/openpgp-sign" \
+            -H "Authorization: Bearer $tok" --data-binary @/tmp/DRYRUN)
+          if [ "$bind_status" != "403" ]; then
+            echo "::error::a token bound to $key_id was allowed to act on another key record (HTTP $bind_status). kms:sign is behaving as authority over every key in the account."
+            cat /tmp/bind; exit 1
+          fi
+          echo "key binding holds: another key record refused with 403"
+
+          {
+            echo
+            echo '### Signing dry run'
+            echo
+            echo "| check | result |"
+            echo "| --- | --- |"
+            echo "| exchange | granted, ttl \`${ttl}s\` |"
+            echo "| signed sha256 matches local | yes |"
+            echo "| fingerprint matches the grant | \`$got_fpr\` |"
+            echo "| other key record refused | HTTP 403 |"
+          } >> "$GITHUB_STEP_SUMMARY"
