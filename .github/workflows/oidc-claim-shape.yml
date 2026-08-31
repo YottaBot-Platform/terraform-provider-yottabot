@@ -65,9 +65,8 @@ on:
         required: true
         default: 'yotta:release-signing'
       yotta_base:
-        description: 'YottaBot estate to present the token to'
-        required: true
-        default: 'https://demo-00.yotta.bot'
+        description: 'Estate base URL to present the token to. Leave empty to use the YOTTA_BASE repository variable.'
+        required: false
 
 # id-token is the ONLY elevated permission here. Nothing is read from the repo
 # beyond the default, nothing is written anywhere, and no secret is referenced -
@@ -93,7 +92,13 @@ jobs:
           # keeps the assertion in one visible place instead of buried in a
           # summary string.
           RELEASE_WORKFLOW_FILE: release.yml
-          YOTTA_BASE: ${{ inputs.yotta_base || 'https://demo-00.yotta.bot' }}
+          # Never a literal host. This repository is public, and every
+          # *.yotta.bot name is treated as a leak unless it is on the
+          # allowlist in .github/leak-allowlist.txt - deny by default, which
+          # is how this line got written correctly on the second attempt.
+          # The estate is named by a repository VARIABLE, set by whoever
+          # runs the probe.
+          YOTTA_BASE: ${{ inputs.yotta_base || vars.YOTTA_BASE }}
         run: |
           set -euo pipefail
 
@@ -213,9 +218,31 @@ jobs:
       - name: Present the token to YottaBot and require a refusal
         env:
           AUDIENCE: ${{ inputs.audience || 'yotta:release-signing' }}
-          YOTTA_BASE: ${{ inputs.yotta_base || 'https://demo-00.yotta.bot' }}
+          # Never a literal host. This repository is public, and every
+          # *.yotta.bot name is treated as a leak unless it is on the
+          # allowlist in .github/leak-allowlist.txt - deny by default, which
+          # is how this line got written correctly on the second attempt.
+          # The estate is named by a repository VARIABLE, set by whoever
+          # runs the probe.
+          YOTTA_BASE: ${{ inputs.yotta_base || vars.YOTTA_BASE }}
         run: |
           set -euo pipefail
+
+          # No estate configured is not a failure - the claim shape above is
+          # useful on its own, and a fork or a contributor running this has no
+          # estate to present a token to. Say so and stop.
+          if [ -z "${YOTTA_BASE:-}" ]; then
+            {
+              echo
+              echo '### Exchange probe skipped'
+              echo
+              echo 'No estate URL. Set the `YOTTA_BASE` repository variable, or'
+              echo 'pass `yotta_base` when dispatching, to also present the token'
+              echo 'and assert that it is refused.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "no YOTTA_BASE configured; skipping the exchange probe"
+            exit 0
+          fi
 
           # A SECOND token, not the one the previous step decoded. Each is
           # single-use by design: YottaBot records an allowed exchange and
