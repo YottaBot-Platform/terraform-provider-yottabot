@@ -27,10 +27,37 @@ name: OIDC claim shape (diagnostic)
 # it exists to prevent. That it costs a maintainer approval per run is the
 # feature.
 #
+# WHY IT RUNS FROM A TAG AND NOT FROM `main`
+#
+# The first version of this workflow was dispatchable from any ref, and the
+# `release` environment refused it: its deployment branch policy admits tags
+# matching `v*` and nothing else. That refusal was correct, and it caught a real
+# bug in the instrument rather than an inconvenience in the configuration.
+#
+# A run from `main` would have reported `ref: refs/heads/main` and a
+# `workflow_ref` ending `@refs/heads/main` — neither of which the release job
+# ever presents. A policy pinned from that output would have been written from a
+# claim set that does not exist on the release path, which is the precise
+# failure this workflow was added to prevent. It nearly happened to the
+# workflow itself.
+#
+# So the probe runs from a tag. `oidc-probe-*` rather than `v*`, because a `v*`
+# push triggers the real release workflow, and this must never be reachable from
+# a path that publishes anything. The tag is disposable and can be deleted once
+# the shape is captured.
+#
 # Delete this workflow once the policy is enabled and a release has signed
 # through it. It is a measuring instrument, not part of the release path.
 
 on:
+  # The probe path. `oidc-probe-*` is deliberately outside `v*`, so pushing one
+  # cannot trigger release.yml.
+  push:
+    tags:
+      - 'oidc-probe-*'
+  # Kept for a dispatch against a `v*` tag that already carries this file — the
+  # only other ref the release environment admits. It cannot work from a branch;
+  # see the header.
   workflow_dispatch:
     inputs:
       audience:
@@ -54,7 +81,14 @@ jobs:
     steps:
       - name: Request a token and print its claim shape
         env:
-          AUDIENCE: ${{ inputs.audience }}
+          # workflow_dispatch supplies the input; a tag push does not, so fall
+          # back to the audience the policy expects.
+          AUDIENCE: ${{ inputs.audience || 'yotta:release-signing' }}
+          # The workflow whose `workflow_ref` the POLICY must pin. A probe runs
+          # as itself and therefore cannot observe this value — naming it here
+          # keeps the assertion in one visible place instead of buried in a
+          # summary string.
+          RELEASE_WORKFLOW_FILE: release.yml
         run: |
           set -euo pipefail
 
@@ -123,8 +157,50 @@ jobs:
               col="${pair%%:*}"; claim="${pair##*:}"
               printf '| `%s` | `%s` |\n' "$col" "$(echo "$claims" | jq -r --arg c "$claim" '.[$c]')"
             done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # The two ref-derived policy columns are NOT emitted as values, on
+          # purpose.
+          #
+          # A probe runs from an `oidc-probe-*` tag; the release runs from a
+          # `v*` one. Pasting this run's `ref` into `ref_pattern` would pin the
+          # policy to a tag no release will ever carry, and the failure would
+          # arrive at the first real release as a refusal nobody could explain
+          # from the policy row alone. So the summary prints the SHAPE to write
+          # and refuses to hand over a value that would be wrong.
+          observed_ref="$(echo "$claims" | jq -r '.ref')"
+          observed_wf="$(echo "$claims" | jq -r '.workflow_ref')"
+          # <owner>/<repo> — observed, and the only part of workflow_ref a probe
+          # can legitimately carry over to the policy.
+          repo_prefix="$(echo "$observed_wf" | cut -d/ -f1,2)"
+          observed_wf_file="$(echo "$observed_wf" | cut -d@ -f1 | awk -F/ '{print $NF}')"
+          {
             echo
-            echo 'Derive `ref_pattern` and `workflow_ref_pattern` from the `ref`'
-            echo 'and `workflow_ref` above by replacing the version with `v*` -'
-            echo 'pin the workflow FILE, and let only the version vary.'
+            echo "### The two columns you must NOT copy from this run"
+            echo
+            echo "This run observed \`ref\` = \`$observed_ref\` and"
+            echo "\`workflow_ref\` = \`$observed_wf\`."
+            echo
+            if [ "${observed_ref#refs/tags/v}" = "$observed_ref" ]; then
+              echo "That is a **probe** ref, not a release ref. Write the policy with:"
+            else
+              echo "That is already a release-shaped ref. Write the policy with:"
+            fi
+            echo
+            echo '| policy column | value |'
+            echo '| --- | --- |'
+            echo '| `ref_pattern` | `refs/tags/v*` |'
+            printf '| `workflow_ref_pattern` | `%s/.github/workflows/%s@refs/tags/v*` |\n' \
+              "$repo_prefix" "$RELEASE_WORKFLOW_FILE"
+            echo
+            echo 'The workflow FILE is pinned and only the version varies.'
+            if [ "$observed_wf_file" != "$RELEASE_WORKFLOW_FILE" ]; then
+              echo
+              printf '> This run observed \`%s\`, which is THIS probe. ' "$observed_wf_file"
+              printf 'The policy must name \`%s\` — the workflow that signs. ' "$RELEASE_WORKFLOW_FILE"
+              echo 'A probe cannot observe another workflow'"'"'s `workflow_ref`,'
+              echo '> so that half of the pattern is asserted from the repository'
+              echo '> tree rather than measured. Check it against the release'
+              echo '> workflow'"'"'s actual filename before enabling the policy.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
