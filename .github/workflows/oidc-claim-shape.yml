@@ -1,0 +1,130 @@
+name: OIDC claim shape (diagnostic)
+
+# Prints the shape of the OpenID Connect token GitHub mints for the release job,
+# so a YottaBot trust policy can be written against claims that were OBSERVED
+# rather than assumed.
+#
+# WHY THIS EXISTS AS ITS OWN WORKFLOW
+#
+# The release job is moving off `GPG_PRIVATE_KEY` / `GPG_PASSPHRASE` and onto
+# workload federation: it will present this token to YottaBot, YottaBot will
+# check it against a stored policy pinning the repository, environment, ref and
+# workflow, and mint a short-lived signing token in return. Every one of those
+# conditions is matched EXACTLY. A policy written against a guessed claim shape
+# does not fail loudly at review time - it fails at the first real release, on a
+# tag that is already published and immutable.
+#
+# So the shape gets captured first, from a job that signs nothing and publishes
+# nothing.
+#
+# THE ENVIRONMENT LINE IS THE POINT, NOT BOILERPLATE
+#
+# GitHub omits the `environment` claim entirely for a job that does not name an
+# environment. The release job runs in `release`, and the trust policy REQUIRES
+# that claim - it is what keeps the protected environment's reviewer inside the
+# trust boundary. A diagnostic that ran without `environment: release` would
+# print a claim set the real job never presents, which is precisely the mistake
+# it exists to prevent. That it costs a maintainer approval per run is the
+# feature.
+#
+# Delete this workflow once the policy is enabled and a release has signed
+# through it. It is a measuring instrument, not part of the release path.
+
+on:
+  workflow_dispatch:
+    inputs:
+      audience:
+        description: 'OIDC audience to request (must match the YottaBot policy)'
+        required: true
+        default: 'yotta:release-signing'
+
+# id-token is the ONLY elevated permission here. Nothing is read from the repo
+# beyond the default, nothing is written anywhere, and no secret is referenced -
+# there is deliberately no `secrets:` use in this file at all.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  claim-shape:
+    name: print the claim shape
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - name: Request a token and print its claim shape
+        env:
+          AUDIENCE: ${{ inputs.audience }}
+        run: |
+          set -euo pipefail
+
+          # The token is a bearer credential for its whole lifetime. Mask it
+          # before it can reach a log line, and never echo it.
+          TOKEN="$(curl -sSf \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUDIENCE" | jq -r '.value')"
+          echo "::add-mask::$TOKEN"
+
+          # Decode the PAYLOAD only. base64url -> base64, then pad to a multiple
+          # of 4; GNU base64 rejects unpadded input.
+          payload="$(echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+')"
+          case $(( ${#payload} % 4 )) in
+            2) payload="${payload}==" ;;
+            3) payload="${payload}=" ;;
+          esac
+          claims="$(echo "$payload" | base64 -d)"
+
+          # Print SELECTED claims, not the whole payload. Everything below is
+          # public repository metadata; the payload as a whole is not something
+          # to dump into a log on reflex.
+          echo "## OIDC claim shape" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$claims" | jq '{
+            iss, aud, sub,
+            repository, repository_id, repository_owner, repository_owner_id,
+            ref, sha, environment, workflow_ref, job_workflow_ref,
+            event_name, run_id, run_attempt, actor, actor_id
+          }' | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          # The verifier requires each of these and refuses the token when one
+          # is absent - an absent claim would make the policy condition that
+          # constrains it vacuously true, which is the one failure mode a
+          # trust policy must not have. `job_workflow_ref` is deliberately NOT
+          # in this list: GitHub sets it only when a reusable workflow is
+          # involved, so requiring it would refuse every direct workflow.
+          missing=0
+          for c in iss aud sub repository repository_id repository_owner \
+                   repository_owner_id ref sha environment workflow_ref \
+                   event_name run_id run_attempt; do
+            if [ "$(echo "$claims" | jq -r --arg c "$c" '.[$c] // empty')" = "" ]; then
+              echo "::error::required claim '$c' is ABSENT - a policy cannot constrain it"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::the claim set is not what the trust policy expects; do not write a policy from this run"
+            exit 1
+          fi
+
+          # The values an operator pastes into the policy. Printed together so
+          # the two immutable ids cannot be transcribed from different runs.
+          {
+            echo
+            echo "### Values for the YottaBot trust policy"
+            echo
+            echo '| policy column | value |'
+            echo '| --- | --- |'
+            for pair in "repository:repository" "repository_id:repository_id" \
+                        "repository_owner:repository_owner" \
+                        "repository_owner_id:repository_owner_id" \
+                        "environment:environment" "external_audience:aud"; do
+              col="${pair%%:*}"; claim="${pair##*:}"
+              printf '| `%s` | `%s` |\n' "$col" "$(echo "$claims" | jq -r --arg c "$claim" '.[$c]')"
+            done
+            echo
+            echo 'Derive `ref_pattern` and `workflow_ref_pattern` from the `ref`'
+            echo 'and `workflow_ref` above by replacing the version with `v*` -'
+            echo 'pin the workflow FILE, and let only the version vary.'
+          } >> "$GITHUB_STEP_SUMMARY"
