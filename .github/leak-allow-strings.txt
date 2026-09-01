@@ -1,0 +1,29 @@
+# Strings that MATCH a leak pattern and are deliberately public.
+#
+# The patterns in leak-patterns.txt match by shape, not by name — deliberately,
+# because a file enumerating what it hides is itself a disclosure. The cost of
+# matching by shape is that some genuinely public strings share the shape of an
+# internal one, and this is where those are named.
+#
+# Same posture as leak-allowlist.txt: deny by default, and every exception is an
+# explicit reviewable line rather than a widened pattern. Widening the pattern
+# would silently un-hide a whole family; a line here un-hides exactly one string.
+#
+# Matching is per-MATCH, not per-line: a line containing an allowed string AND a
+# real leak still fails. That is the property that makes this safe to have.
+#
+# One entry per line, matched exactly against the text the pattern captured.
+
+# Public HTTP response headers on the artifact-signing API. A practitioner reads
+# both when verifying a release; they are documented, not internal.
+#
+# These are the CAPTURED text, not the header names. The pattern is
+# `\byotta-[a-z]+\b`, and `[a-z]+` stops at the next hyphen — so
+# `x-yotta-signed-sha256` is captured as `yotta-signed`. Writing the full header
+# name here would allow nothing, and the entry would look correct while doing
+# nothing, which is the worst way for an allowlist to be wrong.
+#
+# Both remain narrow because the match is exact: `yotta-signed` does not admit
+# `yotta-signing`, and `yotta-key` does not admit `yotta-keys`.
+yotta-signed
+yotta-key
