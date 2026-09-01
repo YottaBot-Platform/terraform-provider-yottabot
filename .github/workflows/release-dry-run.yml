@@ -1,0 +1,145 @@
+name: Release dry run
+
+# Builds and SIGNS a release without publishing one.
+#
+# The signing swap replaced a GPG key on the runner with a short-lived
+# credential obtained from the workload-identity exchange. Every part of that
+# has been exercised on its own — the exchange, the signing call, the key
+# binding, the certificate check. What none of those covered is the seam that
+# matters most in practice: GoReleaser actually invoking the signer, over the
+# artifact GoReleaser itself produced, in a run shaped like a release.
+#
+# That seam is only reachable from a release, and a release is immutable once
+# published. So this reaches it without publishing anything.
+#
+# WHY IT CANNOT PUBLISH, STRUCTURALLY
+#
+# `contents: read` — this workflow has no permission to create a release or push
+# a tag, so `--skip=publish` is belt as well as braces. If someone later removes
+# the flag, the job fails on permissions rather than quietly cutting a release.
+#
+# Delete this alongside the claim-shape probe once a real release has signed
+# through the policy. It is scaffolding for a cutover, not part of the release
+# path.
+
+on:
+  push:
+    tags:
+      - 'oidc-signdry-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  dry-run:
+    name: build and sign, publish nothing
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: exchange the workload identity token for a signing credential
+        id: yotta
+        run: |
+          set -euo pipefail
+          gh_token="$(curl -sSf \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${AUDIENCE}" | jq -r '.value')"
+
+          resp="$(curl -sS -w '\n%{http_code}' -X POST \
+            "${YOTTA_BASE%/}/api/machine-auth/v1/oauth/federated-token" \
+            --data-urlencode 'grant_type=urn:yotta:params:oauth:grant-type:workload-federation' \
+            --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:id-token' \
+            --data-urlencode "subject_token=${gh_token}")"
+          status="$(printf '%s' "$resp" | tail -n1)"
+          body="$(printf '%s' "$resp" | sed '$d')"
+
+          if [ "$status" != "200" ]; then
+            echo "::error::the signing service refused this workflow (HTTP $status)."
+            printf '%s' "$body" | jq '{error, error_description}' 2>/dev/null || printf '%s\n' "$body"
+            exit 1
+          fi
+
+          token="$(printf '%s' "$body" | jq -r '.access_token')"
+          echo "::add-mask::$token"
+          {
+            echo "token=$token"
+            echo "key_record=$(printf '%s' "$body" | jq -r '.key_record_id')"
+            echo "fingerprint=$(printf '%s' "$body" | jq -r '.key_fingerprint')"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          AUDIENCE: ${{ vars.YOTTA_AUDIENCE || 'yotta:release-signing' }}
+          YOTTA_BASE: ${{ vars.YOTTA_BASE }}
+
+      - name: materialise the published signing certificate
+        run: |
+          set -euo pipefail
+          printf '%s\n' "${SIGNING_CERT}" > "${RUNNER_TEMP}/signing-cert.asc"
+          grep -q 'BEGIN PGP PUBLIC KEY BLOCK' "${RUNNER_TEMP}/signing-cert.asc" \
+            || { echo "::error::YOTTA_SIGNING_CERT_ASC is not an armored public key."; exit 1; }
+        env:
+          SIGNING_CERT: ${{ vars.YOTTA_SIGNING_CERT_ASC }}
+
+      - uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
+        with:
+          version: '~> v2'
+          args: release --clean --snapshot --skip=publish
+        env:
+          YOTTA_BASE: ${{ vars.YOTTA_BASE }}
+          YOTTA_TOKEN: ${{ steps.yotta.outputs.token }}
+          YOTTA_KEY_RECORD: ${{ steps.yotta.outputs.key_record }}
+          YOTTA_KEY_FINGERPRINT: ${{ steps.yotta.outputs.fingerprint }}
+          YOTTA_SIGNING_CERT: ${{ runner.temp }}/signing-cert.asc
+
+      # GoReleaser reports success whether or not it ran the signer, so the
+      # artifact is checked directly. An absent .sig here means signing was
+      # skipped rather than performed — which would make a green run mean
+      # nothing at all.
+      - name: assert a signature exists and verifies
+        run: |
+          set -euo pipefail
+          sums="$(find dist -name '*SHA256SUMS' -not -name '*.sig' | head -1)"
+          [ -n "$sums" ] || { echo "::error::no checksum file in dist/"; ls -R dist; exit 1; }
+          sig="${sums}.sig"
+          [ -s "$sig" ] || { echo "::error::no signature at $sig — GoReleaser did not run the signer"; ls -l dist; exit 1; }
+
+          export GNUPGHOME="$(mktemp -d)"
+          gpg --batch --quiet --import "${RUNNER_TEMP}/signing-cert.asc"
+          gpg --batch --verify "$sig" "$sums"
+
+          # And prove the negative: the signature must NOT verify over other bytes.
+          printf 'tampered\n' > /tmp/tampered
+          if gpg --batch --verify "$sig" /tmp/tampered 2>/dev/null; then
+            echo "::error::the signature verified over bytes it did not sign"
+            exit 1
+          fi
+
+          {
+            echo '### Dry run'
+            echo
+            echo "| check | result |"
+            echo "| --- | --- |"
+            echo "| checksum file | \`$(basename "$sums")\` |"
+            echo "| signature | \`$(basename "$sig")\` |"
+            echo "| gpg over the checksums | Good signature |"
+            echo "| gpg over other bytes | correctly rejected |"
+            echo "| published | nothing — \`contents: read\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: confirm nothing was published
+        run: |
+          set -euo pipefail
+          if ls dist/*.txt >/dev/null 2>&1 && grep -rq 'Release created' dist/ 2>/dev/null; then
+            echo "::error::this run appears to have published something"; exit 1
+          fi
+          echo "no release created; dist/ is local to this runner"
