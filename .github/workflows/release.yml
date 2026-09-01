@@ -59,6 +59,15 @@ jobs:
             exit 1
           fi
 
+      # GoReleaser's `sboms` block shells out to syft, which is not on the
+      # runner. Without this the release fails AFTER building and archiving
+      # every artifact and BEFORE producing the checksums - so the failure is
+      # late, expensive, and lands on a tag that is already pushed.
+      #
+      # Found by the dry run: no release had ever been cut, so nothing had
+      # exercised this path. Pinned by commit like every other action here.
+      - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+
       # Obtain a signing credential without holding one.
       #
       # This replaced an imported GPG private key and passphrase. Both lived in
