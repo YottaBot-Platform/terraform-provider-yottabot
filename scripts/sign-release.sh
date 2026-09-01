@@ -17,10 +17,20 @@
 #
 # Required environment:
 #   YOTTA_BASE            base URL of the signing service
-#   YOTTA_TOKEN           short-lived bearer from the federated exchange
-#   YOTTA_KEY_RECORD      key record id — FROM THE EXCHANGE, not from config
-#   YOTTA_KEY_FINGERPRINT fingerprint the exchange promised
 #   YOTTA_SIGNING_CERT    path to the armored public certificate
+#   YOTTA_AUDIENCE        optional; the audience the trust policy expects
+#   ACTIONS_ID_TOKEN_REQUEST_TOKEN / _URL   supplied by GitHub Actions
+#
+# WHY THE EXCHANGE HAPPENS HERE AND NOT IN THE WORKFLOW
+#
+# It used to happen in a workflow step, and a real run proved that wrong: the
+# credential lives five minutes, GoReleaser spent nearly nine building and
+# archiving before it reached signing, and the token was four minutes dead on
+# arrival — HTTP 401, after the whole build.
+#
+# Minting where the credential is USED is the point of a short-lived
+# credential. Doing it early and carrying it is how a short life turns from a
+# security property into a race.
 #
 # WHY THE EXPECTED VALUES COME FROM THE EXCHANGE
 #
@@ -42,14 +52,53 @@ set -euo pipefail
 artifact="${1:?usage: sign-release.sh <artifact> <signature-output>}"
 signature="${2:?usage: sign-release.sh <artifact> <signature-output>}"
 
-for var in YOTTA_BASE YOTTA_TOKEN YOTTA_KEY_RECORD YOTTA_KEY_FINGERPRINT YOTTA_SIGNING_CERT; do
+for var in YOTTA_BASE YOTTA_SIGNING_CERT ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL; do
   if [ -z "${!var:-}" ]; then
     echo "sign-release: $var is not set." >&2
-    echo "  This script signs through federated identity; the release workflow" >&2
-    echo "  sets these from the token exchange. It cannot fall back to a local" >&2
-    echo "  key, because there is deliberately no local key to fall back to." >&2
+    echo "  This script signs through federated identity. The two ACTIONS_* values" >&2
+    echo "  come from GitHub when a job declares 'id-token: write'; the others from" >&2
+    echo "  the workflow. It cannot fall back to a local key, because there is" >&2
+    echo "  deliberately no local key to fall back to." >&2
     exit 1
   fi
+done
+
+# ── obtain a credential, now, for this one signature ──
+command -v jq >/dev/null 2>&1 || {
+  echo "sign-release: jq is required to read the exchange response." >&2; exit 1; }
+
+gh_oidc="$(curl -sSf \
+  -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+  "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${YOTTA_AUDIENCE:-yotta:release-signing}" \
+  | jq -r '.value // empty')"
+if [ -z "$gh_oidc" ]; then
+  echo "sign-release: could not obtain a workload identity token from GitHub." >&2
+  exit 1
+fi
+
+exchange="$(curl -sS -w '\n%{http_code}' -X POST \
+  "${YOTTA_BASE%/}/api/machine-auth/v1/oauth/federated-token" \
+  --data-urlencode 'grant_type=urn:yotta:params:oauth:grant-type:workload-federation' \
+  --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:id-token' \
+  --data-urlencode "subject_token=${gh_oidc}")"
+exchange_status="$(printf '%s' "$exchange" | tail -n1)"
+exchange_body="$(printf '%s' "$exchange" | sed '$d')"
+if [ "$exchange_status" != "200" ]; then
+  echo "sign-release: the signing service refused this workflow (HTTP $exchange_status)." >&2
+  printf '%s\n' "$exchange_body" >&2
+  echo "  The specific reason is deliberately not in that response - it is" >&2
+  echo "  recorded against this run on the estate. Nothing was signed." >&2
+  exit 1
+fi
+
+YOTTA_TOKEN="$(printf '%s' "$exchange_body" | jq -r '.access_token // empty')"
+YOTTA_KEY_RECORD="$(printf '%s' "$exchange_body" | jq -r '.key_record_id // empty')"
+YOTTA_KEY_FINGERPRINT="$(printf '%s' "$exchange_body" | jq -r '.key_fingerprint // empty')"
+# GoReleaser streams this script's output into its own log; mask before anything
+# else can echo it.
+echo "::add-mask::${YOTTA_TOKEN}"
+for var in YOTTA_TOKEN YOTTA_KEY_RECORD YOTTA_KEY_FINGERPRINT; do
+  [ -n "${!var}" ] || { echo "sign-release: the exchange returned no $var" >&2; exit 1; }
 done
 [ -r "$artifact" ] || { echo "sign-release: cannot read artifact $artifact" >&2; exit 1; }
 [ -r "$YOTTA_SIGNING_CERT" ] || { echo "sign-release: cannot read certificate $YOTTA_SIGNING_CERT" >&2; exit 1; }

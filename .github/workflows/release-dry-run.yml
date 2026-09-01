@@ -57,38 +57,14 @@ jobs:
       # exercised this path. Pinned by commit like every other action here.
       - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
 
-      - name: exchange the workload identity token for a signing credential
-        id: yotta
-        run: |
-          set -euo pipefail
-          gh_token="$(curl -sSf \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${AUDIENCE}" | jq -r '.value')"
-
-          resp="$(curl -sS -w '\n%{http_code}' -X POST \
-            "${YOTTA_BASE%/}/api/machine-auth/v1/oauth/federated-token" \
-            --data-urlencode 'grant_type=urn:yotta:params:oauth:grant-type:workload-federation' \
-            --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:id-token' \
-            --data-urlencode "subject_token=${gh_token}")"
-          status="$(printf '%s' "$resp" | tail -n1)"
-          body="$(printf '%s' "$resp" | sed '$d')"
-
-          if [ "$status" != "200" ]; then
-            echo "::error::the signing service refused this workflow (HTTP $status)."
-            printf '%s' "$body" | jq '{error, error_description}' 2>/dev/null || printf '%s\n' "$body"
-            exit 1
-          fi
-
-          token="$(printf '%s' "$body" | jq -r '.access_token')"
-          echo "::add-mask::$token"
-          {
-            echo "token=$token"
-            echo "key_record=$(printf '%s' "$body" | jq -r '.key_record_id')"
-            echo "fingerprint=$(printf '%s' "$body" | jq -r '.key_fingerprint')"
-          } >> "$GITHUB_OUTPUT"
-        env:
-          AUDIENCE: ${{ vars.YOTTA_AUDIENCE || 'yotta:release-signing' }}
-          YOTTA_BASE: ${{ vars.YOTTA_BASE }}
+      # No exchange step here on purpose. The credential is minted inside
+      # scripts/sign-release.sh, at the moment it signs.
+      #
+      # A run proved why: the token lives five minutes, GoReleaser spent nearly
+      # nine building and archiving before it reached signing, and the token was
+      # four minutes dead on arrival. Minting where the credential is USED is
+      # the point of a short-lived credential; minting early and carrying it
+      # turns a short life from a security property into a race.
 
       - name: materialise the published signing certificate
         run: |
@@ -105,9 +81,7 @@ jobs:
           args: release --clean --snapshot --skip=publish
         env:
           YOTTA_BASE: ${{ vars.YOTTA_BASE }}
-          YOTTA_TOKEN: ${{ steps.yotta.outputs.token }}
-          YOTTA_KEY_RECORD: ${{ steps.yotta.outputs.key_record }}
-          YOTTA_KEY_FINGERPRINT: ${{ steps.yotta.outputs.fingerprint }}
+          YOTTA_AUDIENCE: ${{ vars.YOTTA_AUDIENCE || 'yotta:release-signing' }}
           YOTTA_SIGNING_CERT: ${{ runner.temp }}/signing-cert.asc
 
       # GoReleaser reports success whether or not it ran the signer, so the
