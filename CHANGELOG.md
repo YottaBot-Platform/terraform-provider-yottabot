@@ -14,6 +14,7 @@ release, never by replacing a published tag or asset.
 - `yottabot_llm_gateway` — configured routes to upstream inference providers.
 - `yottabot_role` — access roles, the join point between groups and policies.
 - `yottabot_group` — human groups and the permissions they grant.
+- `yottabot_machine_group` — grouping for service accounts and robots.
 
 ### Notes for first-time users
 

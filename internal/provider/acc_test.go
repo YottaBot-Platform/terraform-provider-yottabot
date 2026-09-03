@@ -467,3 +467,54 @@ resource "yottabot_group" "test" {
 		},
 	})
 }
+
+// TestAccMachineGroup_lifecycle covers the pointer-presence update dialect:
+// step 3 removes `description`, and the following plan must be EMPTY. The
+// handler skips an absent field, so the provider has to send an explicit ""
+// or the removal never reaches the database.
+func TestAccMachineGroup_lifecycle(t *testing.T) {
+	name := accName(t, "machinegroup")
+
+	withDescription := fmt.Sprintf(`
+resource "yottabot_machine_group" "test" {
+  name        = %q
+  description = "created by the provider acceptance suite"
+}
+`, name)
+
+	withoutDescription := fmt.Sprintf(`
+resource "yottabot_machine_group" "test" {
+  name = %q
+}
+`, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: withDescription,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_machine_group.test", "name", name),
+					resource.TestCheckResourceAttr("yottabot_machine_group.test", "is_builtin", "false"),
+					// A fresh group has no members, and the count is computed on
+					// read — it must come back as a real zero, not unknown.
+					resource.TestCheckResourceAttr("yottabot_machine_group.test", "member_count", "0"),
+				),
+			},
+			{
+				ResourceName:      "yottabot_machine_group.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: withoutDescription,
+				Check:  resource.TestCheckNoResourceAttr("yottabot_machine_group.test", "description"),
+			},
+			{
+				Config:   withoutDescription,
+				PlanOnly: true,
+			},
+		},
+	})
+}
