@@ -273,3 +273,86 @@ resource "yottabot_context_provider" "test" {
 		},
 	})
 }
+
+// TestAccGuardrailPolicy_lifecycle covers the two behaviours that are specific
+// to this resource and cannot be proven by unit tests, because both live in the
+// service rather than in the provider.
+//
+// Step 3 removes description and tags from the config. The service PATCHes with
+// COALESCE, so an absent field preserves — the provider has to send an explicit
+// empty string, and a following plan must be EMPTY. A non-empty plan here means
+// the removal never reached the database.
+//
+// Steps 4 and 5 destroy the policy and recreate it under the SAME name. Delete
+// is a soft delete, and until bot/268 the table's UNIQUE (account_id, name)
+// covered deleted rows too, so this failed with a duplicate key and a destroyed
+// name was burned forever. This step is the regression test for that migration.
+func TestAccGuardrailPolicy_lifecycle(t *testing.T) {
+	name := accName(t, "guardrail")
+
+	withFields := fmt.Sprintf(`
+resource "yottabot_guardrail_policy" "test" {
+  name        = %q
+  description = "created by the provider acceptance suite"
+  tags        = "acc,suite"
+  definition  = jsonencode({ max_tokens = 1000 })
+}
+`, name)
+
+	// Same name, and description/tags simply gone.
+	withoutFields := fmt.Sprintf(`
+resource "yottabot_guardrail_policy" "test" {
+  name = %q
+}
+`, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: withFields,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_guardrail_policy.test", "name", name),
+					resource.TestCheckResourceAttr("yottabot_guardrail_policy.test", "description",
+						"created by the provider acceptance suite"),
+					resource.TestCheckResourceAttr("yottabot_guardrail_policy.test", "tags", "acc,suite"),
+					resource.TestCheckResourceAttrSet("yottabot_guardrail_policy.test", "id"),
+				),
+			},
+			{
+				ResourceName:      "yottabot_guardrail_policy.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				// Remove from config -> apply -> plan clean. The framework
+				// fails the step if the follow-up plan is non-empty, which is
+				// exactly the assertion wanted: the clear reached the service
+				// and the empty value read back as absent.
+				Config: withoutFields,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("yottabot_guardrail_policy.test", "description"),
+					resource.TestCheckNoResourceAttr("yottabot_guardrail_policy.test", "tags"),
+					// definition's column is NOT NULL DEFAULT '{}', so removing
+					// it resets rather than clears.
+					resource.TestCheckResourceAttr("yottabot_guardrail_policy.test", "definition", "{}"),
+				),
+			},
+			{
+				// Destroy, leaving the soft-deleted row behind holding the name.
+				Config:  `# intentionally empty: destroys everything above`,
+				Destroy: true,
+			},
+			{
+				// Recreate under the same name. Before bot/268 this failed with
+				// `duplicate key value violates unique constraint`.
+				Config: withFields,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_guardrail_policy.test", "name", name),
+					resource.TestCheckResourceAttrSet("yottabot_guardrail_policy.test", "id"),
+				),
+			},
+		},
+	})
+}
