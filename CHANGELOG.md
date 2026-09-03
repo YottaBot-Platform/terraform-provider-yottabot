@@ -8,6 +8,30 @@ release, never by replacing a published tag or asset.
 
 ## Unreleased
 
+### Added
+
+- `yottabot_guardrail_policy` — guardrail policies agents reference.
+- `yottabot_llm_gateway` — configured routes to upstream inference providers.
+
+### Notes for first-time users
+
+Two behaviours on these resources are deliberate and would otherwise look like
+bugs:
+
+- **Removing an optional attribute clears it.** These APIs preserve on absence,
+  so the provider sends an explicit empty value when you delete a line from
+  your config. Removing `definition` from a guardrail policy resets it to `{}`
+  rather than null, because that column cannot hold null.
+- **`upstream_provider` on an LLM gateway forces replacement.** The API has no
+  update path for it — a different upstream is a different gateway. It is named
+  `upstream_provider` rather than `provider` because Terraform reserves
+  `provider` as a meta-argument, and `vendor` on that resource already means
+  something else: the gateway's own owner, not the service it calls.
+
+Destroying a guardrail policy is a soft delete on the platform side. The row is
+retained so audit references to it still resolve, and the name is released for
+reuse — so destroy followed by apply with the same name works.
+
 ## 0.1.0 - 2026-09-03
 
 First stable release. Identical in behaviour to `0.1.0-rc.2`, which was
