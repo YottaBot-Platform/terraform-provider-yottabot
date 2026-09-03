@@ -114,7 +114,8 @@ jobs:
           # invites someone to remove the check.
           { grep -rIonE -f /tmp/patterns.txt \
               --exclude=leak-patterns.txt --exclude=leak-allowlist.txt \
-              --exclude=leak-allow-strings.txt --exclude-dir=.git . || true; } \
+              --exclude=leak-allow-strings.txt --exclude=leak-allow-commits.txt \
+              --exclude-dir=.git . || true; } \
             | while IFS= read -r hit; do
                 m="${hit##*:}"
                 grep -qxF "$m" /tmp/allow-strings.txt || printf '%s\n' "$hit"

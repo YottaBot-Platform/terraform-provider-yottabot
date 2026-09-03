@@ -18,7 +18,10 @@
 # Full 40-character SHAs, one per line, each with a comment saying what the
 # message contains and who decided to accept it.
 
-# Contains "Plan #229 §5" — a reference to an internal planning document.
+# Contains a reference to an internal planning document, by number and section.
+# Described rather than quoted: reproducing the matched text here would put the
+# disclosure into a tracked file, which is worse than leaving it in one immutable
+# commit message. Same reasoning as the header of leak-patterns.txt.
 # Reviewed 2026-09-03 and accepted deliberately: the message is an engineer's
 # post-mortem of a token-lifetime mistake (a 4m58s credential against a 8m56s
 # build) and carries no credential, hostname, or infrastructure detail. The
