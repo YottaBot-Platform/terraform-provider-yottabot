@@ -52,16 +52,26 @@ checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
   algorithm: sha256
 
+# The checksum file is signed by a service, not by a key on the runner.
+#
+# This replaced `gpg --detach-sign`, which needed GPG_PRIVATE_KEY and
+# GPG_PASSPHRASE in repository secrets. Anything able to run a step in this
+# repository could read both, and a release-signing key is worth stealing. The
+# release job now presents the OpenID Connect token GitHub mints for it and
+# receives a short-lived credential bound to one key; no key material reaches
+# the runner at any point.
+#
+# scripts/sign-release.sh verifies its own output before returning it - the bytes
+# signed must hash to the artifact, the key must be the one granted, and gpg
+# must accept the signature against the published certificate. A signature over
+# the wrong bytes is indistinguishable from a good one until a consumer rejects
+# it, by which time the tag is published and immutable.
 signs:
   - artifacts: checksum
+    cmd: ./scripts/sign-release.sh
     args:
-      - "--batch"
-      - "--local-user"
-      - "{{ .Env.GPG_FINGERPRINT }}"
-      - "--output"
-      - "${signature}"
-      - "--detach-sign"
       - "${artifact}"
+      - "${signature}"
 
 sboms:
   - artifacts: archive

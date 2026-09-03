@@ -59,12 +59,52 @@ jobs:
             exit 1
           fi
 
-      - name: import signing key
-        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec # v6.3.0
-        id: gpg
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      # GoReleaser's `sboms` block shells out to syft, which is not on the
+      # runner. Without this the release fails AFTER building and archiving
+      # every artifact and BEFORE producing the checksums - so the failure is
+      # late, expensive, and lands on a tag that is already pushed.
+      #
+      # Found by the dry run: no release had ever been cut, so nothing had
+      # exercised this path. Pinned by commit like every other action here.
+      - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+
+      # Obtain a signing credential without holding one.
+      #
+      # This replaced an imported GPG private key and passphrase. Both lived in
+      # repository secrets, which means anything able to run a step here could
+      # read them, and a release-signing key is worth stealing. Nothing secret
+      # is referenced below: the job presents the OpenID Connect token GitHub
+      # mints for it, and receives a token that expires in minutes and can sign
+      # exactly one key record.
+      #
+      # The protected `release` environment above is load-bearing for this, not
+      # decoration. The signing service's trust policy REQUIRES the environment
+      # claim, which GitHub only sets for a job that names one - so the reviewer
+      # on that environment is inside the trust boundary, and a workflow that
+      # skipped it could not obtain a credential at all.
+      # No exchange step here on purpose. The credential is minted inside
+      # scripts/sign-release.sh, at the moment it signs.
+      #
+      # A run proved why: the token lives five minutes, GoReleaser spent nearly
+      # nine building and archiving before it reached signing, and the token was
+      # four minutes dead on arrival. Minting where the credential is USED is
+      # the point of a short-lived credential; minting early and carrying it
+      # turns a short life from a security property into a race.
+
+      # The certificate a practitioner imports to verify this release. Public by
+      # definition, and the anchor the signer checks its own output against - if
+      # it disagrees with the key the exchange granted, the signer refuses
+      # rather than producing a signature nobody can verify.
+      - name: materialise the published signing certificate
+        run: |
+          set -euo pipefail
+          printf '%s\n' "${SIGNING_CERT}" > "${RUNNER_TEMP}/signing-cert.asc"
+          if ! grep -q 'BEGIN PGP PUBLIC KEY BLOCK' "${RUNNER_TEMP}/signing-cert.asc"; then
+            echo "::error::YOTTA_SIGNING_CERT_ASC is not an armored public key."
+            exit 1
+          fi
+        env:
+          SIGNING_CERT: ${{ vars.YOTTA_SIGNING_CERT_ASC }}
 
       - uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
         with:
@@ -72,7 +112,13 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GPG_FINGERPRINT: ${{ steps.gpg.outputs.fingerprint }}
+          # Consumed by scripts/sign-release.sh. The key and fingerprint come from
+          # the EXCHANGE, never from a constant in this repository: an
+          # expected-fingerprint that can be edited in the same pull request as
+          # the code being signed is not a check.
+          YOTTA_BASE: ${{ vars.YOTTA_BASE }}
+          YOTTA_AUDIENCE: ${{ vars.YOTTA_AUDIENCE || 'yotta:release-signing' }}
+          YOTTA_SIGNING_CERT: ${{ runner.temp }}/signing-cert.asc
 
       - name: attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

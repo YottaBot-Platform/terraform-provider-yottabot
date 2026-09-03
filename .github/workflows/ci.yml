@@ -114,7 +114,8 @@ jobs:
           # invites someone to remove the check.
           { grep -rIonE -f /tmp/patterns.txt \
               --exclude=leak-patterns.txt --exclude=leak-allowlist.txt \
-              --exclude=leak-allow-strings.txt --exclude-dir=.git . || true; } \
+              --exclude=leak-allow-strings.txt --exclude=leak-allow-commits.txt \
+              --exclude-dir=.git . || true; } \
             | while IFS= read -r hit; do
                 m="${hit##*:}"
                 grep -qxF "$m" /tmp/allow-strings.txt || printf '%s\n' "$hit"
@@ -186,8 +187,22 @@ jobs:
           # Keep it this way while the history is small enough that "all of it"
           # is cheap. If that stops being true, narrow it by adding a scanned
           # watermark, never by going back to HEAD~1.
+          # Excepted commits, by full SHA. A commit message cannot be edited in
+          # place, so the exception is scoped to the commit rather than to the
+          # matched string -- allowlisting the string would permit it in every
+          # future message too. See .github/leak-allow-commits.txt.
+          if [ -f .github/leak-allow-commits.txt ]; then
+            grep -vE '^[[:space:]]*(#|$)' .github/leak-allow-commits.txt > /tmp/allow-commits.txt
+          else
+            : > /tmp/allow-commits.txt
+          fi
+
           found=0
           for c in $(git rev-list HEAD); do
+            if grep -qxF "$c" /tmp/allow-commits.txt; then
+              echo "note: $c is an accepted exception, skipping"
+              continue
+            fi
             if git log -1 --format='%B' "$c" | grep -nIE -f /tmp/patterns.txt; then
               echo "::error::internal reference in commit message $c"
               found=1
