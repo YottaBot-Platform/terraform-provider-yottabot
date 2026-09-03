@@ -8,6 +8,18 @@ release, never by replacing a published tag or asset.
 
 ## Unreleased
 
+## 0.1.0-rc.1 - 2026-09-03
+
+First public release candidate, published so the install path can be exercised
+end to end from the Terraform Registry. Treat it as a candidate: the interface
+is expected to be stable, but nothing has yet been installed by anyone outside
+the project. `0.1.0` follows once that has been.
+
+Releases from this version onward are signed by a key held in Yotta Keys and
+used through a short-lived credential minted per release. No private key exists
+on the build runner, and none is stored in this repository or its secrets.
+Verifying a release is described in [VERIFY_ARTIFACTS.md](VERIFY_ARTIFACTS.md).
+
 ### Added
 
 - Initial provider with five resources, each supporting create, read, update,
