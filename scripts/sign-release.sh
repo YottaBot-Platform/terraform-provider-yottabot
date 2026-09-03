@@ -135,7 +135,7 @@ sha256_of() {
 local_sha="$(sha256_of "$artifact")"
 
 http_status="$(curl -sS --fail-with-body -D /tmp/sign-release-headers -o "$signature" -w '%{http_code}' \
-  -X POST "${YOTTA_BASE%/}/api/keys-manager/v1/kms/keys/${YOTTA_KEY_RECORD}/openpgp-sign?armor=true" \
+  -X POST "${YOTTA_BASE%/}/api/keys-manager/v1/kms/keys/${YOTTA_KEY_RECORD}/openpgp-sign" \
   -H "Authorization: Bearer ${YOTTA_TOKEN}" \
   --data-binary "@${artifact}")" || {
     echo "sign-release: signing request failed (HTTP ${http_status:-?})" >&2
@@ -148,6 +148,24 @@ http_status="$(curl -sS --fail-with-body -D /tmp/sign-release-headers -o "$signa
 # internal-reference scan reads the vendor prefix followed by a hyphen as an
 # internal identifier and flags the full names; grepping the suffix keeps that
 # guard intact rather than loosening a security pattern for one file.
+# The Registry requires a BINARY detached signature, and the endpoint returns
+# binary unless asked otherwise. Assert it here, because nothing below can:
+# `gpg --verify` reads armored and binary alike, so an armored .sig passes
+# every remaining check in this script and is rejected by the Registry after
+# the tag is already public. That is the expensive place to find out.
+if [ ! -s "$signature" ]; then
+  echo "sign-release: the service returned an EMPTY signature." >&2
+  echo "  An empty file fails to verify against everything, including a tampered" >&2
+  echo "  artifact — so the checks below would report success at proving nothing." >&2
+  rm -f "$signature"; exit 1
+fi
+if head -c 64 "$signature" | grep -q 'BEGIN PGP'; then
+  echo "sign-release: the signature is ASCII-armored; the Registry requires binary." >&2
+  echo "  The signing endpoint returns binary by default. Something has added" >&2
+  echo "  ?armor=true to the request above." >&2
+  rm -f "$signature"; exit 1
+fi
+
 got_sha="$(grep -i 'signed-sha256:' /tmp/sign-release-headers | tr -d '\r' | awk '{print $2}')"
 got_fpr="$(grep -i 'key-fingerprint:' /tmp/sign-release-headers | tr -d '\r' | awk '{print $2}')"
 rm -f /tmp/sign-release-headers
