@@ -66,6 +66,18 @@ checksum:
 # must accept the signature against the published certificate. A signature over
 # the wrong bytes is indistinguishable from a good one until a consumer rejects
 # it, by which time the tag is published and immutable.
+# No `sboms` block, deliberately. GoReleaser puts SBOM artifacts into its
+# artifact set, and everything in that set lands in SHA256SUMS. The Terraform
+# Registry reads that file as the manifest of the release and requires every
+# entry to be a file it ingests -- the provider archives and the manifest, and
+# nothing else. Thirteen SBOM entries made it refuse v0.1.0-rc.1 outright with
+# "missing files in request body".
+#
+# `checksum.ids` looks like the lever and is not: measured against a local
+# snapshot, restricting it changed nothing. SBOMs are therefore built after
+# GoReleaser and uploaded to the release directly, which keeps them published
+# without letting them reach the checksums. See release.yml.
+
 signs:
   - artifacts: checksum
     cmd: ./scripts/sign-release.sh
@@ -73,8 +85,6 @@ signs:
       - "${artifact}"
       - "${signature}"
 
-sboms:
-  - artifacts: archive
 
 release:
   extra_files:
