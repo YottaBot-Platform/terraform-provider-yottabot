@@ -311,18 +311,13 @@ func expandLLMGatewayUpdate(m llmGatewayResourceModel) client.LLMGatewayUpdate {
 		RateLimitPerMinute: optionalInt(m.RateLimitPerMinute),
 		MonthlyBudgetCents: optionalInt64(m.MonthlyBudgetCents),
 	}
-	if v := m.Name.ValueString(); v != "" {
-		out.Name = &v
-	}
-	if v := m.AuthMode.ValueString(); v != "" {
-		out.AuthMode = &v
-	}
-	if v := m.Status.ValueString(); v != "" {
-		out.Status = &v
-	}
-	if v := m.BudgetPolicy.ValueString(); v != "" {
-		out.BudgetPolicy = &v
-	}
+	// Never sent empty — see nonEmptyString. `name` because this service has no
+	// NULLIF guard and "" would blank the row; the other three because they are
+	// validated against a closed set and "" is not in it.
+	out.Name = nonEmptyString(m.Name)
+	out.AuthMode = nonEmptyString(m.AuthMode)
+	out.Status = nonEmptyString(m.Status)
+	out.BudgetPolicy = nonEmptyString(m.BudgetPolicy)
 	return out
 }
 

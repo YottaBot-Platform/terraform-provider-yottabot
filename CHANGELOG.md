@@ -12,6 +12,8 @@ release, never by replacing a published tag or asset.
 
 - `yottabot_guardrail_policy` — guardrail policies agents reference.
 - `yottabot_llm_gateway` — configured routes to upstream inference providers.
+- `yottabot_role` — access roles, the join point between groups and policies.
+- `yottabot_group` — human groups and the permissions they grant.
 
 ### Notes for first-time users
 
@@ -27,6 +29,19 @@ bugs:
   `upstream_provider` rather than `provider` because Terraform reserves
   `provider` as a meta-argument, and `vendor` on that resource already means
   something else: the gateway's own owner, not the service it calls.
+
+**Neither `yottabot_role` nor `yottabot_group` manages its attachments.** Role
+policy/group attachments and group membership are separate API endpoints, and
+they are also written by the console, by SCIM, and by an SSO provider's `groups`
+claim on every login. Modelling them as attributes would make Terraform the sole
+authority over every one of them and delete anything created elsewhere on the
+next apply — the trap AWS split apart into `aws_iam_role_policy_attachment`.
+A role's `users`, `groups` and `policies` counts are readable so a config can
+still assert on them.
+
+A group's `permissions` set is different, and *is* owned: it is replaced
+wholesale on every update, so the set in config is the complete grant. An empty
+set clears every permission rather than leaving them alone.
 
 Destroying a guardrail policy is a soft delete on the platform side. The row is
 retained so audit references to it still resolve, and the name is released for

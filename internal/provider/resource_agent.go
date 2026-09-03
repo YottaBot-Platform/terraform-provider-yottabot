@@ -375,6 +375,28 @@ func clearableString(v types.String) *string {
 	return &s
 }
 
+// nonEmptyString is clearableString's opposite, for fields that must never be
+// sent empty.
+//
+// Two distinct reasons a field lands here. Some services COALESCE without a
+// NULLIF guard, so a pointer to "" blanks the column instead of being ignored —
+// `name` on llm_gateways, roles and policies. Others validate against a closed
+// set, so "" comes back as `unknown auth_mode ""` rather than reading as a
+// clear. Either way the answer is the same: say nothing.
+//
+// Safe for Required attributes precisely because they cannot be removed from
+// config — a null here means unknown, and preserving is correct for that too.
+func nonEmptyString(v types.String) *string {
+	if v.IsNull() || v.IsUnknown() {
+		return nil
+	}
+	s := v.ValueString()
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // optionalString maps a nullable API string into state, collapsing "" to null.
 //
 // This is what keeps an optional field from diffing forever: clearing sends "",
