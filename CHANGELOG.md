@@ -8,6 +8,23 @@ release, never by replacing a published tag or asset.
 
 ## Unreleased
 
+## 0.1.0 - 2026-09-03
+
+First stable release. Identical in behaviour to `0.1.0-rc.2`, which was
+installed from the Terraform Registry on a clean machine with no credentials
+before this was promoted — that install is the whole reason the candidates
+existed.
+
+### Security
+
+- `golang.org/x/crypto` to v0.52.0 and `google.golang.org/grpc` to v1.83.1,
+  clearing eleven critical and high advisories. Both are indirect; every
+  critical was in `x/crypto`, which reaches the module graph through a
+  test-only path and is not present in the released binary. The two `grpc`
+  advisories did affect it. Neither was ever installable, since only release
+  candidates had been published and Terraform does not select a prerelease
+  without an exact version constraint.
+
 ## 0.1.0-rc.2 - 2026-09-03
 
 Re-cut of the first candidate. `0.1.0-rc.1` built and signed correctly but the
