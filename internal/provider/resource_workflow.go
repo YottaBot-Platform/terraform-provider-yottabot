@@ -136,7 +136,7 @@ func (r *workflowResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"orchestrator_id": schema.StringAttribute{
 				Computed: true,
 				MarkdownDescription: "Orchestrator (Yotta Graph) UUID. Read-only: SaaS assigns it and a disagreeing " +
-					"value is rejected server-side (ADR 0009).",
+					"value is rejected server-side.",
 			},
 			"last_run_at":     schema.StringAttribute{Computed: true, MarkdownDescription: "Timestamp of the most recent run."},
 			"last_run_status": schema.StringAttribute{Computed: true, MarkdownDescription: "Status of the most recent run."},

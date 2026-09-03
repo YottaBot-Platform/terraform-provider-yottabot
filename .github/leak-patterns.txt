@@ -13,9 +13,19 @@ src/(yotta|common)[a-z-]*/
 # suffix. yottabot and yotta.bot are legitimate and do not match.
 \byotta-[a-z]+\b
 
-# References to internal planning documents.
+# References to internal planning and decision documents. Both name a document
+# a practitioner cannot read.
+#
+# The first two were added after an internal planning reference reached a schema
+# description published to the Terraform Registry. The ADR forms below are the
+# same class and were missed by that pass: `ADR NNNN` shipped in two schema
+# descriptions, and therefore in their generated Registry pages, until the
+# pre-public scan caught it. When you add a pattern for one citation style,
+# check for its siblings.
 [Pp]lan #[0-9]
 docs/plans/
+ADR [0-9]{4}
+\.ai/decisions
 
 # Internal build tags and agent instruction files.
 prod-[0-9a-f]{7}

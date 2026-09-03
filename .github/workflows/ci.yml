@@ -62,7 +62,12 @@ jobs:
     name: no internal references
     runs-on: ubuntu-latest
     steps:
+      # fetch-tags, because stage 3 scans tag annotations and a shallow
+      # checkout has none — the scan would pass by seeing nothing.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       # This repository is public. Its source was extracted from a private
       # monorepo that referenced internal hostnames, source paths, and planning
@@ -73,6 +78,11 @@ jobs:
       # If this job fails, fix the file. Do not add an exception without
       # understanding why the pattern was on the list.
       - name: scan for internal references
+        env:
+          # Read-only, and only for the published release notes. Absent on a
+          # fork PR, where the scan says so and skips that stage rather than
+          # reporting a pass it did not earn.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
           grep -vE '^[[:space:]]*(#|$)' .github/leak-patterns.txt > /tmp/patterns.txt
@@ -91,10 +101,57 @@ jobs:
           done
 
           # Stage 2 — everything else, by pattern.
-          if grep -rInE -f /tmp/patterns.txt --exclude=leak-patterns.txt --exclude=leak-allowlist.txt --exclude-dir=.git .; then
+          #
+          # Matched per-MATCH rather than per-line, so an allowlisted string
+          # cannot shelter a real leak that happens to share its line. `grep -o`
+          # gives file:line:match; the allowlist filters the match column only.
+          grep -vE '^[[:space:]]*(#|$)' .github/leak-allow-strings.txt > /tmp/allow-strings.txt
+          #
+          # `|| true` because finding NOTHING is the success case and grep
+          # reports it as exit 1. Under `bash -e` with pipefail that aborted the
+          # whole step, silently, on a clean tree - a scan that fails when it
+          # has nothing to report is worse than no scan, because the failure
+          # invites someone to remove the check.
+          { grep -rIonE -f /tmp/patterns.txt \
+              --exclude=leak-patterns.txt --exclude=leak-allowlist.txt \
+              --exclude=leak-allow-strings.txt --exclude-dir=.git . || true; } \
+            | while IFS= read -r hit; do
+                m="${hit##*:}"
+                grep -qxF "$m" /tmp/allow-strings.txt || printf '%s\n' "$hit"
+              done > /tmp/stage2.txt
+          if [ -s /tmp/stage2.txt ]; then
             echo "::error::internal references found"
+            cat /tmp/stage2.txt
             rc=1
           fi
+
+          # Stage 3 — TAG ANNOTATIONS and RELEASE NOTES.
+          #
+          # Both are public, neither is a file, and until this existed neither
+          # was scanned. An internal planning reference reached this repository
+          # through a tag annotation and no check could have caught it; it was
+          # found by hand and the tag was deleted. A scan that reads only the
+          # working tree is a scan with two open doors next to it.
+          git fetch --tags --quiet --force 2>/dev/null || true
+          git for-each-ref --format='%(refname:short) %(contents)' refs/tags > /tmp/tags.txt || true
+          if [ -s /tmp/tags.txt ] && grep -InE -f /tmp/patterns.txt /tmp/tags.txt > /tmp/tag-hits.txt; then
+            echo "::error::internal references in tag annotations — delete or retag; a tag is public"
+            cat /tmp/tag-hits.txt
+            rc=1
+          fi
+
+          if [ -n "${GH_TOKEN:-}" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+              --jq '.[] | "\(.tag_name) \(.name) \(.body)"' > /tmp/releases.txt 2>/dev/null || true
+            if [ -s /tmp/releases.txt ] && grep -InE -f /tmp/patterns.txt /tmp/releases.txt > /tmp/rel-hits.txt; then
+              echo "::error::internal references in published release notes — edit the release"
+              cat /tmp/rel-hits.txt
+              rc=1
+            fi
+          else
+            echo "note: no token, skipping the release-notes scan"
+          fi
+
           [ $rc -eq 0 ] && echo "clean"
           exit $rc
 
@@ -115,12 +172,22 @@ jobs:
         run: |
           set -o pipefail
           grep -vE '^[[:space:]]*(#|$)' .github/leak-patterns.txt > /tmp/patterns.txt
-          range="${{ github.event.pull_request.base.sha }}..HEAD"
-          if [ -z "${{ github.event.pull_request.base.sha }}" ]; then
-            range="HEAD~1..HEAD"
-          fi
+
+          # EVERY commit, not an increment.
+          #
+          # The increment form (the PR range, or HEAD~1..HEAD on a push) is the
+          # right shape for ongoing hygiene and the wrong one for this
+          # repository. Going public exposes the WHOLE history at once, and an
+          # increment scan has by construction never looked at the commits that
+          # were already here when it was added -- so it can report clean over a
+          # history it has never read. Scanning all of them costs one grep per
+          # commit and removes the distinction entirely.
+          #
+          # Keep it this way while the history is small enough that "all of it"
+          # is cheap. If that stops being true, narrow it by adding a scanned
+          # watermark, never by going back to HEAD~1.
           found=0
-          for c in $(git rev-list "$range"); do
+          for c in $(git rev-list HEAD); do
             if git log -1 --format='%B' "$c" | grep -nIE -f /tmp/patterns.txt; then
               echo "::error::internal reference in commit message $c"
               found=1
