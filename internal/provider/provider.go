@@ -179,6 +179,7 @@ func (p *yottabotProvider) Resources(_ context.Context) []func() resource.Resour
 		NewLLMGatewayResource,
 		NewRoleResource,
 		NewGroupResource,
+		NewMachineGroupResource,
 	}
 }
 
