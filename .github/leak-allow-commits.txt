@@ -15,6 +15,14 @@
 # deserves a fresh judgement. It is also why the branch carrying an excepted
 # commit must be MERGED forward, never rebased.
 #
+# ⚠️ A SQUASH MERGE IS A REWRITE. GitHub's squash button folds every branch
+# message into one new commit, so an excepted message reappears under a new SHA
+# and the scan fails on the merge — after the merge, when main is already red.
+# This is not hypothetical; it happened on the first PR this file protected.
+# When you merge a branch carrying an entry below, expect to add the resulting
+# commit here too, or use a merge commit instead of a squash so the original
+# SHAs survive.
+#
 # Full 40-character SHAs, one per line, each with a comment saying what the
 # message contains and who decided to accept it.
 
@@ -28,3 +36,10 @@
 # commit was already public when this was found, so rewriting it would not have
 # unpublished it. The reference itself is the whole of the disclosure.
 9a8275cd73f0f6b7a0e26f20b8fceb3e593444c4
+
+# The squash merge of the pull request that carried the commit above. GitHub
+# folded that message into this new commit, so the same reference reappeared
+# under a new SHA and the scan failed on main immediately after the merge.
+# Same content, same decision as above — not a second judgement, the same one
+# applied to the commit that now carries the text.
+947c9ceaca2cf20661e489a4abe17f3a8d1f596a
