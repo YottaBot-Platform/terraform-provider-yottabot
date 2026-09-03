@@ -61,7 +61,7 @@ resource "yottabot_workflow" "nightly_repo_audit" {
 - `last_run_at` (String) Timestamp of the most recent run.
 - `last_run_status` (String) Status of the most recent run.
 - `modified_at` (String) Last modification timestamp.
-- `orchestrator_id` (String) Orchestrator (Yotta Graph) UUID. Read-only: SaaS assigns it and a disagreeing value is rejected server-side (ADR 0009).
+- `orchestrator_id` (String) Orchestrator (Yotta Graph) UUID. Read-only: SaaS assigns it and a disagreeing value is rejected server-side.
 
 ## Import
 

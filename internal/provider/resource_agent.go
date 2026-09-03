@@ -150,7 +150,7 @@ func (r *agentResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"orchestrator_id": schema.StringAttribute{
 				Computed: true,
 				MarkdownDescription: "Orchestrator (Yotta Graph) UUID. Read-only: SaaS assigns it, and a value that " +
-					"disagrees is rejected server-side (ADR 0009), so it is not an input.",
+					"disagrees is rejected server-side, so it is not an input.",
 			},
 			"user_id": schema.StringAttribute{
 				Computed:            true,

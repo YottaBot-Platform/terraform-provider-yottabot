@@ -55,7 +55,7 @@ resource "yottabot_agent" "repo_auditor" {
 - `id` (String) Server-assigned UUID. This is the import id.
 - `model_id` (String) Model catalog UUID, when the agent is bound to one. Read-only: writes flow through model credentials, not through this route.
 - `modified_at` (String) Last modification timestamp.
-- `orchestrator_id` (String) Orchestrator (Yotta Graph) UUID. Read-only: SaaS assigns it, and a value that disagrees is rejected server-side (ADR 0009), so it is not an input.
+- `orchestrator_id` (String) Orchestrator (Yotta Graph) UUID. Read-only: SaaS assigns it, and a value that disagrees is rejected server-side, so it is not an input.
 - `user_id` (String) UUID of the linked `kind='agent'` user minted at create.
 
 ## Import

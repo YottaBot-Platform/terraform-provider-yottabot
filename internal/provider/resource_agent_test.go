@@ -58,7 +58,7 @@ func TestAgentResource_ComputedFieldsAreNotInputs(t *testing.T) {
 			t.Errorf("%q must be Computed", name)
 		}
 		// orchestrator_id in particular: SaaS assigns it and a disagreeing
-		// value is rejected server-side (ADR 0009), so accepting it as input
+		// value is rejected server-side, so accepting it as input
 		// would only produce apply-time 400s.
 		if attr.IsRequired() {
 			t.Errorf("%q must not be Required", name)

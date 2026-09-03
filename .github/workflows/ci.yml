@@ -172,12 +172,22 @@ jobs:
         run: |
           set -o pipefail
           grep -vE '^[[:space:]]*(#|$)' .github/leak-patterns.txt > /tmp/patterns.txt
-          range="${{ github.event.pull_request.base.sha }}..HEAD"
-          if [ -z "${{ github.event.pull_request.base.sha }}" ]; then
-            range="HEAD~1..HEAD"
-          fi
+
+          # EVERY commit, not an increment.
+          #
+          # The increment form (the PR range, or HEAD~1..HEAD on a push) is the
+          # right shape for ongoing hygiene and the wrong one for this
+          # repository. Going public exposes the WHOLE history at once, and an
+          # increment scan has by construction never looked at the commits that
+          # were already here when it was added -- so it can report clean over a
+          # history it has never read. Scanning all of them costs one grep per
+          # commit and removes the distinction entirely.
+          #
+          # Keep it this way while the history is small enough that "all of it"
+          # is cheap. If that stops being true, narrow it by adding a scanned
+          # watermark, never by going back to HEAD~1.
           found=0
-          for c in $(git rev-list "$range"); do
+          for c in $(git rev-list HEAD); do
             if git log -1 --format='%B' "$c" | grep -nIE -f /tmp/patterns.txt; then
               echo "::error::internal reference in commit message $c"
               found=1
