@@ -8,6 +8,20 @@ release, never by replacing a published tag or asset.
 
 ## Unreleased
 
+## 0.1.0-rc.2 - 2026-09-03
+
+Re-cut of the first candidate. `0.1.0-rc.1` built and signed correctly but the
+Terraform Registry refused to ingest it: its `SHA256SUMS` named the SBOM files,
+and the Registry reads that file as the manifest of the release and requires
+every entry to be a file it ingests. No version of `0.1.0-rc.1` was ever
+published to the Registry, so nothing could have installed it.
+
+### Fixed
+
+- SBOMs are no longer listed in `SHA256SUMS`. They are still published with
+  every release, built after the archives rather than as part of them, so a
+  consumer who wants one still gets it.
+
 ## 0.1.0-rc.1 - 2026-09-03
 
 First public release candidate, published so the install path can be exercised
