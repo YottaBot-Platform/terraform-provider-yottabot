@@ -356,3 +356,114 @@ resource "yottabot_guardrail_policy" "test" {
 		},
 	})
 }
+
+// TestAccRole_lifecycle covers the one behaviour unit tests cannot reach: the
+// service's COALESCE update. Step 2 removes `description` from config, and the
+// following plan must be EMPTY — a non-empty plan means the provider preserved
+// rather than cleared, and the config would never converge.
+func TestAccRole_lifecycle(t *testing.T) {
+	name := accName(t, "role")
+
+	withDescription := fmt.Sprintf(`
+resource "yottabot_role" "test" {
+  name        = %q
+  description = "created by the provider acceptance suite"
+}
+`, name)
+
+	withoutDescription := fmt.Sprintf(`
+resource "yottabot_role" "test" {
+  name = %q
+}
+`, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: withDescription,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_role.test", "name", name),
+					resource.TestCheckResourceAttrSet("yottabot_role.test", "id"),
+					// A fresh role has nothing attached; the counts are computed
+					// on every read, so they must come back as real zeroes rather
+					// than unknown.
+					resource.TestCheckResourceAttr("yottabot_role.test", "policies", "0"),
+					resource.TestCheckResourceAttr("yottabot_role.test", "groups", "0"),
+					resource.TestCheckResourceAttr("yottabot_role.test", "users", "0"),
+				),
+			},
+			{
+				ResourceName:      "yottabot_role.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: withoutDescription,
+				Check: resource.TestCheckNoResourceAttr(
+					"yottabot_role.test", "description"),
+			},
+			{
+				Config:   withoutDescription,
+				PlanOnly: true,
+			},
+		},
+	})
+}
+
+// TestAccGroup_lifecycle covers the permission replace-set, which is the whole
+// point of this resource and lives entirely in the service.
+//
+// Step 3 shrinks the set and step 4 empties it. Emptying is the interesting
+// one: the service reads an absent `permissions` key as "leave alone", so an
+// empty set has to reach the wire as `[]` rather than being omitted. A
+// non-empty plan afterwards means it was dropped somewhere between config and
+// request body.
+func TestAccGroup_lifecycle(t *testing.T) {
+	name := accName(t, "group")
+
+	cfg := func(perms string) string {
+		return fmt.Sprintf(`
+resource "yottabot_group" "test" {
+  name        = %q
+  description = "created by the provider acceptance suite"
+  permissions = %s
+}
+`, name, perms)
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg(`["agents:read", "workflows:read"]`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_group.test", "name", name),
+					resource.TestCheckResourceAttr("yottabot_group.test", "permissions.#", "2"),
+					resource.TestCheckResourceAttr("yottabot_group.test", "is_builtin", "false"),
+				),
+			},
+			{
+				ResourceName:      "yottabot_group.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: cfg(`["agents:read"]`),
+				Check: resource.TestCheckResourceAttr(
+					"yottabot_group.test", "permissions.#", "1"),
+			},
+			{
+				Config: cfg(`[]`),
+				Check: resource.TestCheckResourceAttr(
+					"yottabot_group.test", "permissions.#", "0"),
+			},
+			{
+				Config:   cfg(`[]`),
+				PlanOnly: true,
+			},
+		},
+	})
+}
