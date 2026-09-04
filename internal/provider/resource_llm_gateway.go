@@ -16,7 +16,7 @@ import (
 	"github.com/YottaBot-Platform/terraform-provider-yottabot/internal/client"
 )
 
-// Vocabularies pinned from bot/146's CHECKs (repo.go validProviders /
+// Vocabularies pinned from the server's CHECK constraints (validProviders /
 // validAuthModes / validStatuses / validBudgetPolicies).
 var (
 	llmProviders       = []string{"anthropic", "openai", "bedrock", "vertex", "openai_compatible", "local"}

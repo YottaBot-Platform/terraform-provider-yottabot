@@ -183,7 +183,7 @@ func TestLLMGatewayVocabularies_MatchTheServiceChecks(t *testing.T) {
 		{llmBudgetPolicies, 4, "budget policies"},
 	} {
 		if len(tc.got) != tc.want {
-			t.Errorf("%s: %d values, want %d — bot/146's CHECK has changed", tc.name, len(tc.got), tc.want)
+			t.Errorf("%s: %d values, want %d — the server's CHECK has changed", tc.name, len(tc.got), tc.want)
 		}
 	}
 }

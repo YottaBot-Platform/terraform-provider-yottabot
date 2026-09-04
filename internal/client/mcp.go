@@ -27,7 +27,7 @@ type MCPGateway struct {
 	Status    string `json:"status"`
 
 	// HealthStatus is operational health of deployed instances, distinct from
-	// the lifecycle `Status` (bot/181). Computed — never an input.
+	// the lifecycle `Status`; the two are deliberately separate. Computed — never an input.
 	HealthStatus string `json:"health_status"`
 	Description  string `json:"description"`
 	// ToolsCount serializes as "tools", NOT "tools_count". Reading the wire

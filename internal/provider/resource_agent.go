@@ -25,7 +25,8 @@ var (
 	_ resource.ResourceWithImportState = (*agentResource)(nil)
 )
 
-// agentStatuses is the settable lifecycle vocabulary (bot/019 + bot/022).
+// agentStatuses is the settable lifecycle vocabulary, pinned to the server's own
+// CHECK constraint.
 // Pinned here so a bad value fails at plan rather than as a 400 at apply.
 var agentStatuses = []string{"draft", "available", "unavailable"}
 

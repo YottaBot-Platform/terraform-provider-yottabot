@@ -68,7 +68,7 @@ func (c *Client) UpdateGuardrailPolicy(ctx context.Context, id string, in Guardr
 
 // DeleteGuardrailPolicy is a SOFT delete on the service side: the row keeps its
 // id and gains a `deleted_at`, so audit references to a since-deleted policy
-// still resolve. The name is freed for reuse — bot/268 replaced the
+// still resolve. The name is freed for reuse — uniqueness covers live rows
 // unconditional UNIQUE (account_id, name) with one that applies only to live
 // rows, precisely so that destroy followed by apply works in Terraform.
 func (c *Client) DeleteGuardrailPolicy(ctx context.Context, id string) error {

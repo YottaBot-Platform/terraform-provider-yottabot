@@ -29,12 +29,11 @@ import (
 // converges. clearableString does that; optionalString collapses the empty
 // value back to null on read so the round trip is stable.
 //
-// DELETE IS A SOFT DELETE. The row survives with a `deleted_at` so audit
-// references still resolve. That would have burned the name forever — the
-// table's UNIQUE (account_id, name) did not exclude deleted rows, so destroy
-// followed by apply failed on a duplicate key. bot/268 replaced it with an
-// index over live rows only. This resource is written against that contract
-// and requires it.
+// DELETE IS A SOFT DELETE. The row is retained so audit references to it still
+// resolve, and the name is released for reuse. That last part is a guarantee
+// this resource depends on: without it, destroy followed by apply under the same
+// name would fail on a duplicate, and a destroyed name would be unusable
+// forever. The acceptance test exercises exactly that cycle.
 
 var (
 	_ resource.Resource                = (*guardrailPolicyResource)(nil)

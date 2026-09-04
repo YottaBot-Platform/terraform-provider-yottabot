@@ -51,7 +51,7 @@ func mcpToolSchema(t *testing.T) resource.SchemaResponse {
 }
 
 // health_status is operational state of deployed instances; status is registry
-// lifecycle. bot/181 split them back apart deliberately after bot/108 folded
+// lifecycle. The server split them back apart deliberately after having folded
 // them together, so conflating them here would undo that.
 func TestMCPGateway_HealthIsComputedAndSeparateFromStatus(t *testing.T) {
 	s := mcpGatewaySchema(t)

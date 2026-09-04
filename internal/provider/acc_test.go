@@ -284,9 +284,9 @@ resource "yottabot_context_provider" "test" {
 // the removal never reached the database.
 //
 // Steps 4 and 5 destroy the policy and recreate it under the SAME name. Delete
-// is a soft delete, and until bot/268 the table's UNIQUE (account_id, name)
-// covered deleted rows too, so this failed with a duplicate key and a destroyed
-// name was burned forever. This step is the regression test for that migration.
+// is a soft delete, so the name has to be released when the row is retained.
+// Without that, this fails with a duplicate key and a destroyed name is burned
+// forever. This step is the regression test for that guarantee.
 func TestAccGuardrailPolicy_lifecycle(t *testing.T) {
 	name := accName(t, "guardrail")
 
@@ -345,7 +345,7 @@ resource "yottabot_guardrail_policy" "test" {
 				Destroy: true,
 			},
 			{
-				// Recreate under the same name. Before bot/268 this failed with
+				// Recreate under the same name. Without name release this fails with
 				// `duplicate key value violates unique constraint`.
 				Config: withFields,
 				Check: resource.ComposeAggregateTestCheckFunc(
