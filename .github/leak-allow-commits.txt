@@ -43,3 +43,15 @@
 # Same content, same decision as above — not a second judgement, the same one
 # applied to the commit that now carries the text.
 947c9ceaca2cf20661e489a4abe17f3a8d1f596a
+
+# Contains one internal migration identifier, in a paragraph explaining why a
+# destroy-then-recreate cycle needed a schema change. Described rather than
+# quoted, per the header above.
+# Reviewed 2026-09-03 and accepted: the string names a private repo's migration
+# numbering and nothing else — no credential, hostname, account id, or
+# infrastructure detail. It was already public when found, and main carries
+# three signed release tags, so rewriting history would break every clone and
+# every published checksum to unpublish a string that is already indexed.
+# The pattern that catches this class was added in the same change, so the tree
+# is clean and the NEXT one fails rather than being accepted.
+4d3220b5a471d02f18cad3f5642a5c653df9e63e

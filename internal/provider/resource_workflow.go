@@ -26,7 +26,8 @@ var (
 	_ resource.ResourceWithConfigValidators = (*workflowResource)(nil)
 )
 
-// workflowStatuses is the settable lifecycle vocabulary (bot/022).
+// workflowStatuses is the settable lifecycle vocabulary, pinned to the server's
+// own CHECK constraint.
 var workflowStatuses = []string{"draft", "available", "unavailable"}
 
 // workflowTriggers is the CANONICAL stored vocabulary (types.go StoredTriggers).

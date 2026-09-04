@@ -367,7 +367,7 @@ func TestOneOfValidator_PinsTheStatusVocabulary(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("status vocabulary is missing %q (bot/019 + bot/022)", want)
+			t.Errorf("status vocabulary is missing %q — it must match the server's CHECK", want)
 		}
 	}
 	if len(agentStatuses) != 3 {

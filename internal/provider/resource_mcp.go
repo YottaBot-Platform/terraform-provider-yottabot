@@ -18,7 +18,7 @@ import (
 	"github.com/YottaBot-Platform/terraform-provider-yottabot/internal/client"
 )
 
-// Vocabularies pinned from bot/037's CHECKs (repo.go validTransports /
+// Vocabularies pinned from the server's CHECK constraints (validTransports /
 // validStatuses). Note the gateway status vocabulary has FOUR values — it
 // carries `deprecated`, which agents and workflows do not.
 var (
