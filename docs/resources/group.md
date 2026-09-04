@@ -24,9 +24,9 @@ resource "yottabot_group" "engineers" {
   # permission added outside Terraform is removed on the next run. An empty set
   # is meaningful — it clears every permission rather than leaving them alone.
   permissions = [
-    "agents:read",
-    "agents:write",
-    "workflows:read",
+    "agent_runs:read",
+    "agent_templates:read",
+    "agent_templates:write",
   ]
 }
 ```

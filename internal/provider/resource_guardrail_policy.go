@@ -100,9 +100,11 @@ func (r *guardrailPolicyResource) Schema(_ context.Context, _ resource.SchemaReq
 				Computed:   true,
 				CustomType: jsontypes.NormalizedType{},
 				MarkdownDescription: "Policy definition as JSON. Free-form in v1 — a structured schema is " +
-					"platform-side future work. Defaults to `{}`, and removing it from config resets it to " +
-					"`{}` rather than null, because the column is non-null. Compared semantically, so key " +
-					"order and whitespace do not produce diffs.",
+					"platform-side future work. Defaults to `{}`.\n\n" +
+					"This attribute is optional **and** computed, so **removing it from your config does " +
+					"not clear it** — Terraform keeps the last applied value. To empty it, set it " +
+					"explicitly to `jsonencode({})`. Compared semantically, so key order and whitespace " +
+					"do not produce diffs.",
 			},
 			"tags": schema.StringAttribute{
 				Optional:            true,
