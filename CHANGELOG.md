@@ -8,6 +8,31 @@ release, never by replacing a published tag or asset.
 
 ## Unreleased
 
+### Added
+
+- `yottabot_prompt` — prompts and their published versions.
+- `yottabot_service_account` — non-human principals owned by a group.
+
+### Notes for first-time users
+
+**Changing a prompt's `body` or `variables` publishes a NEW version, and you
+must bump `version` in the same apply.** Versions are immutable once published —
+editing one would change what every agent already referencing it executes — so
+re-publishing an existing version is refused. Editing only `name` or
+`description` does not touch the version.
+
+**`yottabot_service_account` never hands out credentials.** The API can mint a
+keypair and return the private key once, but Terraform writes state in
+plaintext, so the resource does not expose it. Mint credentials through their
+own surface.
+
+**Destroying a service account RETIRES it.** The row is kept and its credentials
+are revoked, so the audit trail still resolves; `status` becomes `retired`. The
+username is released, so re-applying the same config afterwards works. One
+consequence to know: a retired account keeps its owning group, and a group that
+owns any service account cannot be deleted — so a config that creates a group
+and a service account together cannot destroy the group.
+
 ## 0.2.0 - 2026-09-04
 
 Six resources, every one verified by an acceptance run against a live estate
