@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 // Acceptance tests drive a real `terraform apply` against a real YottaBot
@@ -334,10 +335,32 @@ resource "yottabot_guardrail_policy" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckNoResourceAttr("yottabot_guardrail_policy.test", "description"),
 					resource.TestCheckNoResourceAttr("yottabot_guardrail_policy.test", "tags"),
-					// definition's column is NOT NULL DEFAULT '{}', so removing
-					// it resets rather than clears.
-					resource.TestCheckResourceAttr("yottabot_guardrail_policy.test", "definition", "{}"),
+					// definition is Optional AND Computed, so removing it from
+					// config does NOT reset it — Terraform keeps the last
+					// applied value, which is what Computed means. That is
+					// standard framework behaviour and cannot be overridden
+					// from the provider side; to clear it, set it explicitly to
+					// jsonencode({}) (the step below does).
+					//
+					// An earlier version of this check expected "{}" here and
+					// the docs claimed the same. The acceptance run is what
+					// showed the claim was false.
+					resource.TestCheckResourceAttr("yottabot_guardrail_policy.test",
+						"definition", `{"max_tokens":1000}`),
 				),
+			},
+			{
+				// The supported way to clear a Computed attribute: say so
+				// explicitly. This DOES reach the service, and the follow-up
+				// plan must be empty.
+				Config: fmt.Sprintf(`
+resource "yottabot_guardrail_policy" "test" {
+  name       = %q
+  definition = jsonencode({})
+}
+`, name),
+				Check: resource.TestCheckResourceAttr(
+					"yottabot_guardrail_policy.test", "definition", "{}"),
 			},
 			{
 				// Destroy, leaving the soft-deleted row behind holding the name.
@@ -415,6 +438,12 @@ resource "yottabot_role" "test" {
 // TestAccGroup_lifecycle covers the permission replace-set, which is the whole
 // point of this resource and lives entirely in the service.
 //
+// The permission strings here are REAL ones, taken from
+// GET /v1/identity/permissions — the service validates against a canonical list
+// of 226 and rejects anything else with a 400. An earlier version of this test
+// used plausible-looking names (`agents:read`) that do not exist, which no unit
+// test could have caught.
+//
 // Step 3 shrinks the set and step 4 empties it. Emptying is the interesting
 // one: the service reads an absent `permissions` key as "leave alone", so an
 // empty set has to reach the wire as `[]` rather than being omitted. A
@@ -438,7 +467,7 @@ resource "yottabot_group" "test" {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: cfg(`["agents:read", "workflows:read"]`),
+				Config: cfg(`["agent_runs:read", "agent_templates:read"]`),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("yottabot_group.test", "name", name),
 					resource.TestCheckResourceAttr("yottabot_group.test", "permissions.#", "2"),
@@ -451,7 +480,7 @@ resource "yottabot_group" "test" {
 				ImportStateVerify: true,
 			},
 			{
-				Config: cfg(`["agents:read"]`),
+				Config: cfg(`["agent_runs:read"]`),
 				Check: resource.TestCheckResourceAttr(
 					"yottabot_group.test", "permissions.#", "1"),
 			},
@@ -517,4 +546,214 @@ resource "yottabot_machine_group" "test" {
 			},
 		},
 	})
+}
+
+// TestAccPolicy_lifecycle covers what only a live server can show: that
+// statements are genuinely editable in place.
+//
+// Before the statements-editable PATCH they were create-only, so changing one
+// meant destroying the policy — and role_policy_attachments is ON DELETE
+// CASCADE, which silently detached it from every role. Step 3 is the proof the
+// destroy no longer happens: the id must be UNCHANGED across a statement edit.
+//
+// Step 5 empties the list. The server leaves statements alone when the field is
+// absent, so an empty list has to reach the wire as `[]`; a following empty plan
+// is what shows it did.
+func TestAccPolicy_lifecycle(t *testing.T) {
+	name := accName(t, "policy")
+
+	cfg := func(statements string) string {
+		return fmt.Sprintf(`
+resource "yottabot_policy" "test" {
+  name        = %q
+  description = "created by the provider acceptance suite"
+%s
+}
+`, name, statements)
+	}
+
+	oneStatement := cfg(`
+  statements = [
+    {
+      sid     = "read-agents"
+      effect  = "allow"
+      actions = ["agents:read"]
+    },
+  ]`)
+
+	// Same statements, a deny prepended. Order is evaluation order, so this is
+	// a different policy — not a reordering the server may normalize away.
+	twoStatements := cfg(`
+  statements = [
+    {
+      sid     = "deny-writes"
+      effect  = "deny"
+      actions = ["agents:write", "agents:delete"]
+    },
+    {
+      sid       = "read-agents"
+      effect    = "allow"
+      actions   = ["agents:read"]
+      resources = ["*"]
+    },
+  ]`)
+
+	noStatements := cfg(`  statements = []`)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: oneStatement,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_policy.test", "name", name),
+					resource.TestCheckResourceAttr("yottabot_policy.test", "statements.#", "1"),
+					// Never `system`: that kind refuses update and delete, so a
+					// policy created as one could never be managed or destroyed.
+					resource.TestCheckResourceAttr("yottabot_policy.test", "kind", "custom"),
+					// Attached to nothing yet, and read-only.
+					resource.TestCheckResourceAttr("yottabot_policy.test", "attached", ""),
+				),
+			},
+			{
+				ResourceName:      "yottabot_policy.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: twoStatements,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_policy.test", "statements.#", "2"),
+					// Order is preserved and is the evaluation order.
+					resource.TestCheckResourceAttr("yottabot_policy.test", "statements.0.effect", "deny"),
+					resource.TestCheckResourceAttr("yottabot_policy.test", "statements.1.effect", "allow"),
+				),
+			},
+			{
+				Config:   twoStatements,
+				PlanOnly: true,
+			},
+			{
+				Config: noStatements,
+				Check: resource.TestCheckResourceAttr(
+					"yottabot_policy.test", "statements.#", "0"),
+			},
+			{
+				Config:   noStatements,
+				PlanOnly: true,
+			},
+		},
+	})
+}
+
+// TestAccLLMGateway_lifecycle covers the two things unit tests can only assert
+// structurally.
+//
+// Step 3 removes `description` and `endpoint`. The service PATCHes with
+// COALESCE, so absent preserves — the provider must send an explicit empty
+// string, and the follow-up plan must be EMPTY.
+//
+// Steps 4-5 change `upstream_provider`. The update route does not accept the
+// field at all — the service says "Provider is intentionally not updatable
+// (changing it is a new gateway)" — so without RequiresReplace Terraform would
+// plan an in-place update the API silently ignores, and the resource would
+// never converge. The assertion is that the ID CHANGES: that is what proves a
+// replacement happened rather than a no-op update.
+func TestAccLLMGateway_lifecycle(t *testing.T) {
+	name := accName(t, "gateway")
+
+	cfg := func(provider, extra string) string {
+		return fmt.Sprintf(`
+resource "yottabot_llm_gateway" "test" {
+  name              = %q
+  upstream_provider = %q
+%s
+}
+`, name, provider, extra)
+	}
+
+	full := cfg("anthropic", `  description = "created by the provider acceptance suite"
+  endpoint    = "https://example.invalid/v1"`)
+	trimmed := cfg("anthropic", "")
+	replaced := cfg("openai", "")
+
+	var firstID, secondID string
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: full,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_llm_gateway.test", "name", name),
+					resource.TestCheckResourceAttr("yottabot_llm_gateway.test", "upstream_provider", "anthropic"),
+					// vendor is the gateway's OWNER — a different field from the
+					// upstream it calls, which is why this resource exposes the
+					// latter as `upstream_provider` rather than reusing the
+					// `vendor` name the way yottabot_mcp_tool did.
+					//
+					// It is EMPTY here, and that is correct: vendor identifies
+					// the implementer of a managed catalog gateway, and this is
+					// a customer-registered one. Asserting it is set was wrong
+					// and the acceptance run caught it.
+					resource.TestCheckNoResourceAttr("yottabot_llm_gateway.test", "vendor"),
+					captureAttr("yottabot_llm_gateway.test", "id", &firstID),
+				),
+			},
+			{
+				ResourceName:      "yottabot_llm_gateway.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: trimmed,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("yottabot_llm_gateway.test", "description"),
+					resource.TestCheckNoResourceAttr("yottabot_llm_gateway.test", "endpoint"),
+				),
+			},
+			{
+				Config:   trimmed,
+				PlanOnly: true,
+			},
+			{
+				Config: replaced,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_llm_gateway.test", "upstream_provider", "openai"),
+					captureAttr("yottabot_llm_gateway.test", "id", &secondID),
+					func(*terraform.State) error {
+						if firstID == "" || secondID == "" {
+							return fmt.Errorf("ids not captured: %q → %q", firstID, secondID)
+						}
+						if firstID == secondID {
+							return fmt.Errorf("id is unchanged (%s) after changing upstream_provider — "+
+								"the resource was updated in place, which the API silently ignores, "+
+								"so RequiresReplace is not doing its job", firstID)
+						}
+						return nil
+					},
+				),
+			},
+		},
+	})
+}
+
+// captureAttr stashes an attribute value so a later step can compare against it
+// — the only way to assert that a change forced a replacement rather than an
+// in-place update.
+func captureAttr(resourceName, attr string, into *string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("resource %s not in state", resourceName)
+		}
+		v, ok := rs.Primary.Attributes[attr]
+		if !ok {
+			return fmt.Errorf("%s has no attribute %q", resourceName, attr)
+		}
+		*into = v
+		return nil
+	}
 }

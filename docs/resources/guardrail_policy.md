@@ -21,7 +21,9 @@ A guardrail policy agents can reference. Destroying one is a soft delete on the 
 
 ### Optional
 
-- `definition` (String) Policy definition as JSON. Free-form in v1 — a structured schema is platform-side future work. Defaults to `{}`, and removing it from config resets it to `{}` rather than null, because the column is non-null. Compared semantically, so key order and whitespace do not produce diffs.
+- `definition` (String) Policy definition as JSON. Free-form in v1 — a structured schema is platform-side future work. Defaults to `{}`.
+
+This attribute is optional **and** computed, so **removing it from your config does not clear it** — Terraform keeps the last applied value. To empty it, set it explicitly to `jsonencode({})`. Compared semantically, so key order and whitespace do not produce diffs.
 - `description` (String) Free-text description. Removing it from config clears it.
 - `tags` (String) Free-text tags, as the single string the current API stores (not a list).
 

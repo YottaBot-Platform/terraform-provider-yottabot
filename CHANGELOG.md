@@ -15,6 +15,7 @@ release, never by replacing a published tag or asset.
 - `yottabot_role` — access roles, the join point between groups and policies.
 - `yottabot_group` — human groups and the permissions they grant.
 - `yottabot_machine_group` — grouping for service accounts and robots.
+- `yottabot_policy` — access policies and their statements.
 
 ### Notes for first-time users
 
@@ -30,6 +31,20 @@ bugs:
   `upstream_provider` rather than `provider` because Terraform reserves
   `provider` as a meta-argument, and `vendor` on that resource already means
   something else: the gateway's own owner, not the service it calls.
+
+`yottabot_policy`'s `statements` is an **ordered list**, not a set: the server
+assigns each statement's evaluation position from its order, and a `deny`
+short-circuits an `allow`, so reordering the list changes what the policy means.
+An empty list is meaningful — it removes every statement.
+
+`kind` is not settable on a policy. The API accepts `system`, but a system policy
+refuses both update and delete, so a settable `kind` would let you create a
+resource Terraform could never change or destroy.
+
+**`yottabot_guardrail_policy.definition` is optional *and* computed**, so
+removing it from your config does **not** clear it — Terraform keeps the last
+applied value. Set it explicitly to `jsonencode({})` to empty it. (The docs
+previously claimed removal reset it; that was wrong.)
 
 **Neither `yottabot_role` nor `yottabot_group` manages its attachments.** Role
 policy/group attachments and group membership are separate API endpoints, and
