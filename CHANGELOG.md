@@ -8,6 +8,12 @@ release, never by replacing a published tag or asset.
 
 ## Unreleased
 
+## 0.2.0 - 2026-09-04
+
+Six resources, every one verified by an acceptance run against a live estate
+rather than by unit tests alone. That run found five defects the unit suite had
+passed, including one server-side bug affecting every API client — see below.
+
 ### Added
 
 - `yottabot_guardrail_policy` — guardrail policies agents reference.
