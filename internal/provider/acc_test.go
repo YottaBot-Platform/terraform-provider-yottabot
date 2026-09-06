@@ -757,3 +757,148 @@ func captureAttr(resourceName, attr string, into *string) resource.TestCheckFunc
 		return nil
 	}
 }
+
+// TestAccPrompt_lifecycle proves the two behaviours that only a live service
+// shows, and that a unit test can only approximate.
+//
+// Step 3 edits the DESCRIPTION ONLY. That must succeed: the provider omits the
+// unchanged version, and re-sending it would ask the service to publish 1.0.0 a
+// second time — `UNIQUE (prompt_id, version)` makes that a duplicate key on an
+// edit that never touched the content.
+//
+// Step 4 edits the body WITH a version bump, which publishes. The prompt id must
+// be UNCHANGED across it: a new version is not a new prompt.
+func TestAccPrompt_lifecycle(t *testing.T) {
+	name := accName(t, "prompt")
+	var firstID, afterPublishID string
+
+	cfg := func(version, body, desc string) string {
+		return fmt.Sprintf(`
+resource "yottabot_prompt" "test" {
+  name        = %q
+  description = %q
+  version     = %q
+  body        = %q
+  variables   = ["subject"]
+}
+`, name, desc, version, body)
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg("1.0.0", "Summarise {{subject}}.", "first"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_prompt.test", "version", "1.0.0"),
+					resource.TestCheckResourceAttr("yottabot_prompt.test", "used_by", "0"),
+					captureAttr("yottabot_prompt.test", "id", &firstID),
+				),
+			},
+			{
+				ResourceName:      "yottabot_prompt.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				// Description only — must NOT republish 1.0.0.
+				Config: cfg("1.0.0", "Summarise {{subject}}.", "second"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_prompt.test", "description", "second"),
+					resource.TestCheckResourceAttr("yottabot_prompt.test", "version", "1.0.0"),
+				),
+			},
+			{
+				Config:   cfg("1.0.0", "Summarise {{subject}}.", "second"),
+				PlanOnly: true,
+			},
+			{
+				// A real publish.
+				Config: cfg("1.1.0", "Summarise {{subject}} in one line.", "second"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_prompt.test", "version", "1.1.0"),
+					captureAttr("yottabot_prompt.test", "id", &afterPublishID),
+					func(*terraform.State) error {
+						if firstID == "" || afterPublishID == "" {
+							return fmt.Errorf("ids not captured: %q → %q", firstID, afterPublishID)
+						}
+						if firstID != afterPublishID {
+							return fmt.Errorf("the prompt id changed (%s → %s) — publishing a new "+
+								"version must not destroy and recreate the prompt, which would lose "+
+								"its history and every reference to it", firstID, afterPublishID)
+						}
+						return nil
+					},
+				),
+			},
+		},
+	})
+}
+
+// TestAccServiceAccount_lifecycle covers username reuse after retirement.
+//
+// Step 4 destroys and step 5 recreates under the SAME username. Retirement keeps
+// the row, and until uniqueness was narrowed to exclude retired service accounts
+// the name was burned forever — this failed on a duplicate key, which made
+// `terraform destroy` a one-way door.
+//
+// The owning group is supplied via YOTTABOT_ACC_GROUP_ID rather than created
+// here, and that is not laziness. A retired service account KEEPS its
+// owner_group_id, and human_users.owner_group_id is ON DELETE RESTRICT, so a
+// group that has owned one can never be deleted — a config that creates both
+// fails on every destroy. That interaction is a real product question (see the
+// 409 this now returns instead of a 500), and it is not what this test is about.
+func TestAccServiceAccount_lifecycle(t *testing.T) {
+	groupID := os.Getenv("YOTTABOT_ACC_GROUP_ID")
+	if groupID == "" {
+		t.Skip("set YOTTABOT_ACC_GROUP_ID to an existing group's UUID — a service account " +
+			"needs an owner group, and creating one here would make the test's own destroy " +
+			"fail on the RESTRICT that a retired account keeps alive")
+	}
+	username := accName(t, "svcacct")
+
+	cfg := fmt.Sprintf(`
+resource "yottabot_service_account" "test" {
+  username       = %q
+  owner_group_id = %q
+}
+`, username, groupID)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_service_account.test", "username", username),
+					resource.TestCheckResourceAttr("yottabot_service_account.test", "status", "active"),
+					resource.TestCheckResourceAttrSet("yottabot_service_account.test", "owner_group_name"),
+					// No credential ever reaches state.
+					resource.TestCheckNoResourceAttr("yottabot_service_account.test", "private_key_pem"),
+				),
+			},
+			{
+				ResourceName:      "yottabot_service_account.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config:   cfg,
+				PlanOnly: true,
+			},
+			{
+				Config:  `# intentionally empty: destroys everything above`,
+				Destroy: true,
+			},
+			{
+				// Same username again. Without the narrowed uniqueness this
+				// fails with `duplicate key value violates unique constraint`.
+				Config: cfg,
+				Check: resource.TestCheckResourceAttr(
+					"yottabot_service_account.test", "username", username),
+			},
+		},
+	})
+}

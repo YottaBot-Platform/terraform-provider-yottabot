@@ -181,6 +181,8 @@ func (p *yottabotProvider) Resources(_ context.Context) []func() resource.Resour
 		NewGroupResource,
 		NewMachineGroupResource,
 		NewPolicyResource,
+		NewPromptResource,
+		NewServiceAccountResource,
 	}
 }
 
