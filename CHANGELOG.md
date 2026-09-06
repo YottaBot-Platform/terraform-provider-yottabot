@@ -8,6 +8,16 @@ release, never by replacing a published tag or asset.
 
 ## Unreleased
 
+## 0.3.0 - 2026-09-05
+
+Four resources, completing the agent-platform and identity surfaces this
+provider set out to cover — fifteen in total.
+
+Every resource in this release was verified by an acceptance run against a live
+estate, not by unit tests alone. Those runs found defects the unit suite had
+passed, including two server-side bugs that affected every API client; the
+behaviours below are what came out of that.
+
 ### Added
 
 - `yottabot_prompt` — prompts and their published versions.
