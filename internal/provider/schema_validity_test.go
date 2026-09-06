@@ -54,6 +54,8 @@ func TestProviderSchema_IsValidToTheFramework(t *testing.T) {
 		"yottabot_policy",
 		"yottabot_prompt",
 		"yottabot_service_account",
+		"yottabot_model",
+		"yottabot_skill",
 	}
 	for _, name := range want {
 		if _, ok := resp.ResourceSchemas[name]; !ok {

@@ -183,6 +183,8 @@ func (p *yottabotProvider) Resources(_ context.Context) []func() resource.Resour
 		NewPolicyResource,
 		NewPromptResource,
 		NewServiceAccountResource,
+		NewModelResource,
+		NewSkillResource,
 	}
 }
 

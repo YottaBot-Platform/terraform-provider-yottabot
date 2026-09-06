@@ -12,8 +12,23 @@ release, never by replacing a published tag or asset.
 
 - `yottabot_prompt` — prompts and their published versions.
 - `yottabot_service_account` — non-human principals owned by a group.
+- `yottabot_model` — models registered by your account.
+- `yottabot_skill` — SRE skills your account owns.
 
 ### Notes for first-time users
+
+**`yottabot_model` cannot be destroyed while an agent still uses it** — the
+service answers 409 and names what points at it. Nothing in the database
+enforces that, so the refusal is the only thing between a destroy and an agent
+that fails at dispatch. Past usage and training records do not block; they are
+meant to outlive the model. A model's routing (which upstream, which gateway) is
+set together elsewhere and is read-only here.
+
+**`yottabot_skill` manages only your own skills.** The Yotta-managed library
+lives in the same place and is read-only: pointing this resource at a managed
+skill returns not-found. `source_kind` is always `customer`, and `visibility`
+cannot be `yotta_managed`. Changing `slug` or `domain` replaces the skill — the
+update route accepts neither.
 
 **Changing a prompt's `body` or `variables` publishes a NEW version, and you
 must bump `version` in the same apply.** Versions are immutable once published —

@@ -902,3 +902,150 @@ resource "yottabot_service_account" "test" {
 		},
 	})
 }
+
+// TestAccModel_lifecycle proves the in-use guard, which is the only thing
+// standing between a destroy and an agent that fails at dispatch: there is no
+// foreign key on models(id), so the database will not refuse it.
+//
+// Step 3 removes optional free-text attributes; the following plan must be
+// empty, since the service preserves on absence and the provider must send an
+// explicit empty value.
+func TestAccModel_lifecycle(t *testing.T) {
+	name := accName(t, "model")
+
+	full := fmt.Sprintf(`
+resource "yottabot_model" "test" {
+  name        = %q
+  vendor      = "Acme"
+  description = "created by the provider acceptance suite"
+  license     = "proprietary"
+  pricing     = "paid"
+  status      = "available"
+  modalities  = ["text"]
+}
+`, name)
+
+	trimmed := fmt.Sprintf(`
+resource "yottabot_model" "test" {
+  name    = %q
+  license = "proprietary"
+  pricing = "paid"
+  status  = "available"
+}
+`, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: full,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_model.test", "name", name),
+					resource.TestCheckResourceAttr("yottabot_model.test", "modalities.#", "1"),
+					// Routing is set elsewhere, and an UNBOUND model is not empty:
+					// `provider` carries the column default `open_source`. So the
+					// assertion is that it is populated and that `hosting` is
+					// derived from it — `open_source` renders as "Self-hosted" —
+					// not that it is blank. Asserting "" was wrong and this run
+					// caught it.
+					resource.TestCheckResourceAttr("yottabot_model.test", "upstream_provider", "open_source"),
+					resource.TestCheckResourceAttr("yottabot_model.test", "hosting", "Self-hosted"),
+				),
+			},
+			{
+				ResourceName:      "yottabot_model.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: trimmed,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("yottabot_model.test", "vendor"),
+					resource.TestCheckNoResourceAttr("yottabot_model.test", "description"),
+				),
+			},
+			{
+				Config:   trimmed,
+				PlanOnly: true,
+			},
+		},
+	})
+}
+
+// TestAccSkill_lifecycle covers the customer half of a table it shares with the
+// Yotta-managed library.
+//
+// Step 1 asserts the three fields the server pins: a skill created here is
+// `customer`, never `yotta`, and defaults to `private` rather than the wider
+// visibility. Step 5 changes the slug, which must REPLACE rather than update —
+// the update route does not accept it, so an in-place plan would be silently
+// ignored.
+func TestAccSkill_lifecycle(t *testing.T) {
+	slug := accName(t, "skill")
+	var firstID, afterSlugChangeID string
+
+	cfg := func(s, title, visibility string) string {
+		return fmt.Sprintf(`
+resource "yottabot_skill" "test" {
+  slug       = %q
+  title      = %q
+  domain     = "k8s"
+  visibility = %q
+}
+`, s, title, visibility)
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg(slug, "Probe skill", "private"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_skill.test", "slug", slug),
+					// Server-pinned: never `yotta`, which marks the managed library.
+					resource.TestCheckResourceAttr("yottabot_skill.test", "source_kind", "customer"),
+					resource.TestCheckResourceAttr("yottabot_skill.test", "visibility", "private"),
+					resource.TestCheckResourceAttr("yottabot_skill.test", "status", "draft"),
+					captureAttr("yottabot_skill.test", "id", &firstID),
+				),
+			},
+			{
+				ResourceName:      "yottabot_skill.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				// Title and visibility are editable in place.
+				Config: cfg(slug, "Renamed probe", "customer_visible"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("yottabot_skill.test", "title", "Renamed probe"),
+					resource.TestCheckResourceAttr("yottabot_skill.test", "visibility", "customer_visible"),
+				),
+			},
+			{
+				Config:   cfg(slug, "Renamed probe", "customer_visible"),
+				PlanOnly: true,
+			},
+			{
+				// A slug change must REPLACE: the id has to differ.
+				Config: cfg(slug+"-v2", "Renamed probe", "customer_visible"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					captureAttr("yottabot_skill.test", "id", &afterSlugChangeID),
+					func(*terraform.State) error {
+						if firstID == "" || afterSlugChangeID == "" {
+							return fmt.Errorf("ids not captured: %q → %q", firstID, afterSlugChangeID)
+						}
+						if firstID == afterSlugChangeID {
+							return fmt.Errorf("id is unchanged (%s) after a slug change — the "+
+								"resource was updated in place, which the API ignores, so "+
+								"RequiresReplace is not doing its job", firstID)
+						}
+						return nil
+					},
+				),
+			},
+		},
+	})
+}
