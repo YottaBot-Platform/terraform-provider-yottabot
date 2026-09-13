@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -79,7 +78,9 @@ func NewServiceAccountTokenSource(userID, kid, privateKeyPEM, tokenURL string, h
 	}
 	return &serviceAccountSource{
 		userID: userID, kid: kid, tokenURL: tokenURL, priv: priv,
-		http: hc, now: time.Now,
+		// The token call is the one request whose BODY is credential material:
+		// a 307 to another host would replay the signed assertion there.
+		http: withRedirectPolicy(hc), now: time.Now,
 	}, nil
 }
 
@@ -114,7 +115,7 @@ func (s *serviceAccountSource) Token(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("token request to %s: %w", s.tokenURL, err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := readLimited(resp.Body, maxTokenResponseBytes, "the token response")
 	if err != nil {
 		return "", fmt.Errorf("read token response: %w", err)
 	}

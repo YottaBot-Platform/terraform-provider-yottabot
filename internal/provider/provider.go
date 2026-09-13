@@ -61,8 +61,10 @@ func (p *yottabotProvider) Schema(_ context.Context, _ provider.SchemaRequest, r
 		MarkdownDescription: "Manage YottaBot agents, workflows, Context providers, and MCP catalog rows.",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
-				Optional:            true,
-				MarkdownDescription: "YottaBot API base URL, e.g. `https://yottabot.example.com`. Falls back to `YOTTABOT_ENDPOINT`.",
+				Optional: true,
+				MarkdownDescription: "YottaBot API base URL, e.g. `https://yottabot.example.com`. Falls back to `YOTTABOT_ENDPOINT`. " +
+					"Must be `https://` — every request carries a credential. Plain `http://` is accepted only for a " +
+					"loopback host (`localhost`, `127.0.0.1`, `::1`), where there is no network path to observe.",
 			},
 			"token": schema.StringAttribute{
 				Optional:  true,
@@ -86,7 +88,8 @@ func (p *yottabotProvider) Schema(_ context.Context, _ provider.SchemaRequest, r
 			"token_url": schema.StringAttribute{
 				Optional: true,
 				MarkdownDescription: "OAuth token endpoint. Falls back to `YOTTABOT_TOKEN_URL`, then to `<endpoint>" +
-					defaultTokenPath + "`.",
+					defaultTokenPath + "`. Subject to the same `https://` rule as `endpoint`, and checked " +
+					"independently of it: this is the request that carries the signed client assertion.",
 			},
 		},
 	}

@@ -52,6 +52,20 @@ set -euo pipefail
 artifact="${1:?usage: sign-release.sh <artifact> <signature-output>}"
 signature="${2:?usage: sign-release.sh <artifact> <signature-output>}"
 
+# One private working directory for everything this script writes, removed on
+# every exit path.
+#
+# The response headers used to go to a fixed /tmp path. That is a world-writable
+# directory on a shared machine, and the two values read back out of that file —
+# the hash that was signed and the key fingerprint — are what the checks below
+# compare against. Anyone able to pre-create or symlink that path could aim the
+# write elsewhere, and a contributor running this locally is exactly the
+# multi-user case where that matters. mktemp gives a 0700 directory with an
+# unpredictable name.
+workdir="$(mktemp -d)"
+trap 'rm -rf "$workdir"' EXIT
+headers="$workdir/response-headers"
+
 for var in YOTTA_BASE YOTTA_SIGNING_CERT ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL; do
   if [ -z "${!var:-}" ]; then
     echo "sign-release: $var is not set." >&2
@@ -134,7 +148,7 @@ sha256_of() {
 
 local_sha="$(sha256_of "$artifact")"
 
-http_status="$(curl -sS --fail-with-body -D /tmp/sign-release-headers -o "$signature" -w '%{http_code}' \
+http_status="$(curl -sS --fail-with-body -D "$headers" -o "$signature" -w '%{http_code}' \
   -X POST "${YOTTA_BASE%/}/api/keys-manager/v1/kms/keys/${YOTTA_KEY_RECORD}/openpgp-sign" \
   -H "Authorization: Bearer ${YOTTA_TOKEN}" \
   --data-binary "@${artifact}")" || {
@@ -166,9 +180,8 @@ if head -c 64 "$signature" | grep -q 'BEGIN PGP'; then
   rm -f "$signature"; exit 1
 fi
 
-got_sha="$(grep -i 'signed-sha256:' /tmp/sign-release-headers | tr -d '\r' | awk '{print $2}')"
-got_fpr="$(grep -i 'key-fingerprint:' /tmp/sign-release-headers | tr -d '\r' | awk '{print $2}')"
-rm -f /tmp/sign-release-headers
+got_sha="$(grep -i 'signed-sha256:' "$headers" | tr -d '\r' | awk '{print $2}')"
+got_fpr="$(grep -i 'key-fingerprint:' "$headers" | tr -d '\r' | awk '{print $2}')"
 
 if [ "$got_sha" != "$local_sha" ]; then
   echo "sign-release: the service signed different bytes than we sent." >&2
@@ -188,8 +201,9 @@ fi
 # does the signature actually verify, using the same tool and the same
 # certificate a practitioner will use? A throwaway keyring so this never depends
 # on, or disturbs, whatever the runner already trusts.
-gnupg_home="$(mktemp -d)"
-trap 'rm -rf "$gnupg_home"' EXIT
+gnupg_home="$workdir/gnupg"
+mkdir -p "$gnupg_home"
+chmod 700 "$gnupg_home"   # gpg refuses a GNUPGHOME anyone else can read
 if ! GNUPGHOME="$gnupg_home" gpg --batch --quiet --import "$YOTTA_SIGNING_CERT" 2>/dev/null; then
   echo "sign-release: could not import $YOTTA_SIGNING_CERT" >&2
   rm -f "$signature"; exit 1

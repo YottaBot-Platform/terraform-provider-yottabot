@@ -202,6 +202,22 @@ shell cannot silently redirect an apply at the wrong estate.
 `token_url` defaults to `<endpoint>/api/machine-auth/v1/oauth/token` when a
 service account is configured.
 
+**`endpoint` and `token_url` must be `https://`.** Every request this provider
+makes carries a credential — a bearer token on the API, and on the token
+endpoint an Ed25519-signed assertion in exchange for an access token — so over
+plain HTTP anyone on the network path can read one and reuse it against your
+estate. The two are checked separately, because an `https` endpoint does not
+imply an `https` token endpoint.
+
+Plain `http://` is accepted for a loopback host (`localhost`, `127.0.0.1`,
+`::1`) and nothing else. That is an estate you reach on the machine Terraform
+runs on, where there is no network segment to observe. A host that merely looks
+like loopback — `localhost.example.com` — is not loopback and is refused.
+
+Redirects are not followed off that origin, either. A redirect to another host,
+or from `https` to `http`, fails with an error naming the hop rather than
+carrying the credential there.
+
 Agent attestation tokens are **not** valid provider credentials. Terraform is an
 operator/integration client, not an agent runtime.
 

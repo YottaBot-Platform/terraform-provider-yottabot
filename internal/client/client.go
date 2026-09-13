@@ -40,7 +40,10 @@ func New(endpoint string, tokens TokenSource, hc *http.Client) *Client {
 	return &Client{
 		endpoint: strings.TrimRight(endpoint, "/"),
 		tokens:   tokens,
-		http:     hc,
+		// Applied here rather than only on the default client, so a caller
+		// passing its own http.Client cannot accidentally opt out of the
+		// redirect policy that keeps the bearer token on the configured origin.
+		http: withRedirectPolicy(hc),
 	}
 }
 
@@ -127,7 +130,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readLimited(resp.Body, maxAPIResponseBytes, "the response body")
 	if err != nil {
 		return fmt.Errorf("%s %s: read response: %w", method, path, err)
 	}
