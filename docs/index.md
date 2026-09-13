@@ -45,9 +45,9 @@ provider "yottabot" {
 
 ### Optional
 
-- `endpoint` (String) YottaBot API base URL, e.g. `https://yottabot.example.com`. Falls back to `YOTTABOT_ENDPOINT`.
+- `endpoint` (String) YottaBot API base URL, e.g. `https://yottabot.example.com`. Falls back to `YOTTABOT_ENDPOINT`. Must be `https://` — every request carries a credential. Plain `http://` is accepted only for a loopback host (`localhost`, `127.0.0.1`, `::1`), where there is no network path to observe.
 - `kid` (String) Service-account key id. Falls back to `YOTTABOT_KID`.
 - `private_key_pem` (String, Sensitive) Service-account private key, PEM encoded. Falls back to `YOTTABOT_PRIVATE_KEY_PEM`. Never written to state.
 - `token` (String, Sensitive) Bearer token for manual or local runs. Falls back to `YOTTABOT_TOKEN`. Prefer service-account client credentials for automation — with a PAT, the audit trail says a human ran Terraform.
-- `token_url` (String) OAuth token endpoint. Falls back to `YOTTABOT_TOKEN_URL`, then to `<endpoint>/api/machine-auth/v1/oauth/token`.
+- `token_url` (String) OAuth token endpoint. Falls back to `YOTTABOT_TOKEN_URL`, then to `<endpoint>/api/machine-auth/v1/oauth/token`. Subject to the same `https://` rule as `endpoint`, and checked independently of it: this is the request that carries the signed client assertion.
 - `user_id` (String) Service-account user id (OAuth client credentials). Falls back to `YOTTABOT_USER_ID`.

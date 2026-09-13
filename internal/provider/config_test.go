@@ -203,3 +203,76 @@ func TestSettings_Validate(t *testing.T) {
 		}
 	})
 }
+
+// Cleartext transport is a credential-disclosure bug, not a preference: every
+// request this provider makes carries a bearer token, and the token call
+// carries a signed assertion and returns an access token. On http:// to a
+// remote host all three are readable by anyone on the path.
+func TestSettings_Validate_RefusesCleartextTransport(t *testing.T) {
+	t.Run("a remote http endpoint is refused", func(t *testing.T) {
+		errs := Settings{Endpoint: "http://yottabot.example.com", Token: "t"}.Validate()
+		if len(errs) != 1 {
+			t.Fatalf("want one error, got %v", errs)
+		}
+		msg := errs[0].Error()
+		for _, want := range []string{"cleartext", "https://", "loopback"} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("message does not mention %q: %s", want, msg)
+			}
+		}
+	})
+
+	// Loopback is an estate reached on the machine Terraform runs on. There is
+	// no network segment to observe, so refusing it would buy nothing and would
+	// push people toward turning the check off entirely.
+	t.Run("loopback over http is allowed", func(t *testing.T) {
+		for _, ep := range []string{
+			"http://localhost:3000",
+			"http://127.0.0.1:8080",
+			"http://[::1]:8080",
+			"http://estate.localhost:8080",
+		} {
+			if errs := (Settings{Endpoint: ep, Token: "t"}).Validate(); len(errs) != 0 {
+				t.Errorf("%s: want no errors, got %v", ep, errs)
+			}
+		}
+	})
+
+	// A host that merely LOOKS like loopback is not loopback. Without this,
+	// `localhost.attacker.example` would sail through the carve-out.
+	t.Run("a lookalike host is not loopback", func(t *testing.T) {
+		for _, ep := range []string{
+			"http://localhost.attacker.example",
+			"http://127.0.0.1.attacker.example",
+			"http://notlocalhost",
+		} {
+			if errs := (Settings{Endpoint: ep, Token: "t"}).Validate(); len(errs) == 0 {
+				t.Errorf("%s: accepted as loopback", ep)
+			}
+		}
+	})
+
+	// token_url is checked on its own because it can be set on its own — an
+	// https endpoint does not imply an https token endpoint.
+	t.Run("a cleartext token_url is refused even with an https endpoint", func(t *testing.T) {
+		errs := Settings{
+			Endpoint: "https://yottabot.example.com",
+			UserID:   "u", KID: "k", PrivateKeyPEM: "p",
+			TokenURL: "http://auth.example.com/oauth/token",
+		}.Validate()
+		if len(errs) != 1 || !strings.Contains(errs[0].Error(), "token_url") {
+			t.Fatalf("want one token_url error, got %v", errs)
+		}
+	})
+
+	// The derived token URL inherits the endpoint's scheme, so a loopback
+	// service account must still resolve cleanly.
+	t.Run("a loopback service account passes end to end", func(t *testing.T) {
+		s := ResolveSettings(Settings{
+			Endpoint: "http://localhost:8080", UserID: "u", KID: "k", PrivateKeyPEM: "p",
+		}, envFrom(nil))
+		if errs := s.Validate(); len(errs) != 0 {
+			t.Fatalf("want no errors, got %v", errs)
+		}
+	})
+}

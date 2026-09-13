@@ -2,6 +2,8 @@ package provider
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 )
 
@@ -132,6 +134,8 @@ func (s Settings) Validate() []error {
 	} else if !strings.HasPrefix(s.Endpoint, "http://") && !strings.HasPrefix(s.Endpoint, "https://") {
 		errs = append(errs, fmt.Errorf(
 			"endpoint %q must include a scheme (https://…)", s.Endpoint))
+	} else if err := checkTransportSecurity("endpoint", s.Endpoint); err != nil {
+		errs = append(errs, err)
 	}
 
 	switch s.Mode() {
@@ -147,9 +151,58 @@ func (s Settings) Validate() []error {
 			errs = append(errs, fmt.Errorf(
 				"token_url could not be derived: set it explicitly, or set `endpoint` so it can default to <endpoint>%s",
 				defaultTokenPath))
+		} else if err := checkTransportSecurity("token_url", s.TokenURL); err != nil {
+			// Checked separately from endpoint because token_url can be set
+			// on its own. A cleartext one is the worse of the two: it carries
+			// the Ed25519-signed client assertion AND returns the access token.
+			errs = append(errs, err)
 		}
 	}
 	return errs
+}
+
+// checkTransportSecurity refuses a cleartext URL that would put credentials on
+// the wire in the clear.
+//
+// Every request this provider makes is authenticated — a bearer token on the
+// API, a signed client assertion on the token endpoint — so `http://` to a
+// remote host hands the credential to anyone on the path, and a PAT is a
+// long-lived one. TLS is not an optional hardening step here; it is the only
+// thing keeping the credential secret.
+//
+// Loopback is the deliberate exception: an estate reached on the machine
+// Terraform runs on has no network segment to observe, so refusing it would
+// buy nothing and would push people toward turning the check off entirely.
+func checkTransportSecurity(field, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%s %q is not a valid URL: %w", field, raw, err)
+	}
+	if u.Scheme == "https" || isLoopbackHost(u.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s %q uses cleartext http://. Every request carries a credential — a bearer token, "+
+			"or the Ed25519-signed assertion that mints one — and on plain HTTP anyone on the "+
+			"network path can read it and reuse it against your estate. Use https://. "+
+			"Plain http:// is accepted only for a loopback host (localhost, 127.0.0.1, ::1), "+
+			"where there is no network path to observe",
+		field, raw)
+}
+
+// isLoopbackHost reports a host that cannot leave the machine.
+//
+// Host, not authority: url.Hostname() has already dropped the port and the
+// brackets around an IPv6 literal, so `[::1]:8080` arrives here as `::1`.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	// Covers 127.0.0.0/8 and ::1 without hardcoding either.
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 // PartialServiceAccount reports a half-specified service account — the shape
