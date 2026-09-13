@@ -8,6 +8,60 @@ release, never by replacing a published tag or asset.
 
 ## Unreleased
 
+## 0.4.0 - 2026-09-12
+
+A security release. Two ways a provider credential could leave the estate it was
+configured for, both present since `0.1.0`, plus the hardening that came with
+them.
+
+Whether you were exposed is answerable. If every `endpoint` you have configured
+has always been `https://`, the first item below never applied to you. If any
+workspace was ever pointed at a plaintext endpoint, treat the token it used as
+disclosed and rotate it. `private_key_pem` was never affected on either path: it
+is parsed once and signs locally, and only the signature is ever transmitted.
+
+### Breaking changes
+
+- **`endpoint` and `token_url` no longer accept cleartext `http://` for a
+  non-loopback host.** Every request carries a credential — a bearer token, or
+  the Ed25519-signed assertion that mints one — so on plain HTTP anyone on the
+  network path could read it and reuse it against your estate. `token_url`
+  derives from `endpoint` and inherited its scheme, so a single plaintext
+  endpoint also put the token exchange in the clear; the two are now checked
+  independently, because an `https` endpoint does not imply an `https` token
+  endpoint. `http://localhost`, `http://127.0.0.1` and `http://[::1]` are still
+  accepted, which covers an estate reached on the machine Terraform runs on. A
+  workspace pointed at a plaintext remote estate now fails at configure time
+  with an error naming the field; the migration is to use `https://`.
+
+### Security
+
+- **Redirects are no longer followed off the configured origin.** Go's default
+  policy is not enough here, and both gaps were verified against the standard
+  library rather than assumed: `Authorization` is stripped only across a
+  different *domain*, and that comparison ignores the scheme — so an `https` →
+  `http` redirect to the same host keeps the header and puts the bearer token on
+  the wire in cleartext. Separately, a 307 or 308 replays the request *body* at
+  the new host, and on the token endpoint that body is the signed client
+  assertion. Both are now refused with an error naming the hop. Same-origin
+  redirects are still followed, since trailing-slash and canonical-path
+  normalisation are ordinary server behaviour.
+
+- **Response bodies are read under a size limit.** An endpoint returning an
+  unbounded body can no longer exhaust the provider's memory. An oversized
+  response is an error naming the limit — never a silent truncation, which would
+  surface as a confusing decode failure somewhere else or, worse, as a
+  successfully decoded prefix.
+
+- `google.golang.org/grpc` to v1.83.2, clearing the one open advisory
+  (GHSA-2v4p-qf9q-27wj), with the `golang.org/x` modules carried forward
+  alongside it.
+
+- The release signer no longer writes its response headers to a predictable
+  `/tmp` path. The signed hash and key fingerprint read back out of that file
+  are what its own integrity checks compare against, so that path was
+  load-bearing; it now uses a private temporary directory.
+
 ## 0.3.0 - 2026-09-05
 
 Four resources, completing the agent-platform and identity surfaces this
