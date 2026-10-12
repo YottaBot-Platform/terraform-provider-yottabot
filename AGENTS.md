@@ -167,16 +167,3 @@ gofmt -l .                     # must be empty
 Run a local build through Terraform with a `dev_overrides` block in
 `~/.terraformrc` — see the README's Development section. The override path is the
 directory holding the binary, not the binary itself.
-
-## 12. Worktrees go inside their repo
-
-Make a worktree of this repo, or of any YottaBot repo, at
-`<repo>/.claude/worktrees/<name>`, or in your agent app's own worktree folder
-such as `~/.codex/worktrees/`. Never create a worktree, clone or copy beside
-the clones in `~/go/src/github.com/YottaBot-Platform/` or
-`~/go/src/github.com/YottaBot-Inc/`: those folders hold only the canonical
-clones listed in yotta-cross-repo [`docs/repos.md`](https://github.com/YottaBot-Platform/yotta-cross-repo/blob/main/docs/repos.md).
-A plan written in a worktree belongs in the owning repo's `docs/plans/`:
-commit it, or hand it off, before the worktree is removed. On 2026-10-11, 31
-stray `<repo>-<plan>` folders there had to be cleaned up; three held the only
-copy of a plan.
